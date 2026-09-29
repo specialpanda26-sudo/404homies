@@ -1,0 +1,20 @@
+{
+  "name": "hidden-gem-ticketing",
+  "version": "2.1.0",
+  "description": "Event ticketing with M-Pesa (TinyPesa) payments, QR tickets and a door scanner. Node + Express + Supabase Postgres.",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check src/config.js && node --check src/db.js && node --check src/util.js && node --check src/tinypesa.js && node --check src/payments.js && node --check src/jobs.js && node --check src/routes/public.js && node --check src/routes/webhook.js && node --check src/routes/staff.js && node --check src/routes/admin.js && node --check public/js/app.js && node --check public/js/admin.js && node --check public/js/door.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "pg": "^8.12.0"
+  }
+}

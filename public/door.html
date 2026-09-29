@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0a0908">
+<title>Door scanner</title>
+<link rel="icon" type="image/png" href="/assets/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="hero glass" style="padding:18px 20px"><h1 style="font-size:28px">Door scanner</h1><p>Staff only</p></div>
+
+  <div class="panel glass on" id="login">
+    <label for="tok">Staff code</label>
+    <input id="tok" type="password" autocomplete="current-password" placeholder="Enter the staff code">
+    <div class="err" id="loginErr"></div>
+    <button class="btn" type="button" data-act="login">Unlock scanner</button>
+  </div>
+
+  <div class="panel glass" id="app">
+    <div class="counts"><div><b id="cAdm">0</b><small>Admitted</small></div><div><b id="cTot">0</b><small>Tickets sold</small></div><div><b id="cLocal">0</b><small>This phone</small></div></div>
+    <div class="scanbox" style="margin-top:14px">
+      <video id="vid" autoplay playsinline muted></video>
+      <div class="frame"></div>
+      <div class="hint" id="camHint">Camera off &mdash; tap Start</div>
+    </div>
+    <div class="btns2">
+      <button class="btn ghost" type="button" id="camBtn" data-act="camOn">Start camera</button>
+      <button class="btn ghost" type="button" data-act="camOff">Stop</button>
+    </div>
+    <label class="sw" for="admitMode"><input type="checkbox" id="admitMode" checked><span>Admit on scan (turn off to only look up a ticket)</span></label>
+    <label style="margin-top:14px">Or type the ticket code</label>
+    <div class="row" style="align-items:center">
+      <input id="man" autocapitalize="characters" autocomplete="off" placeholder="TICKET-XXXXXXXX" style="font-family:ui-monospace,Menlo,monospace">
+      <button class="btn" type="button" style="margin-top:0;flex:0 0 110px" data-act="manual">Verify</button>
+    </div>
+    <div class="verdict" id="verdict" role="status" aria-live="assertive"></div>
+    <div class="log"><h4>Check-in log</h4><div id="logList"><div class="empty" style="padding:14px">No scans yet.</div></div></div>
+    <button class="btn ghost" type="button" data-act="logout">Lock scanner</button>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
+<script src="/js/door.js" defer></script>
+</body>
+</html>

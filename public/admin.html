@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — 404 Pool Party Tickets</title>
+<style>
+:root{--gold:#c9a84c;--gold2:#e8c96a;--dark:#0a0806;--txt:#f0e8d8;--mut:rgba(240,232,216,.52);--glass:rgba(14,9,4,.72);--good:#4ade80;--bad:#f87171;--warn:#fbbf24;--border:rgba(201,168,76,.28)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;background:var(--dark);color:var(--txt);font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px}
+body{padding:0 0 40px}
+a{color:var(--gold2);text-decoration:none}
+a:hover{text-decoration:underline}
+/* topbar */
+.bar{background:rgba(10,8,4,.95);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:50;backdrop-filter:blur(8px)}
+.bar h1{font-size:16px;color:var(--gold2);flex:1}
+.bar .role{font-size:11px;color:var(--mut)}
+/* login */
+#loginWrap{max-width:360px;margin:60px auto;background:var(--glass);border:1px solid var(--border);border-radius:18px;padding:28px 24px}
+#loginWrap h2{color:var(--gold2);margin-bottom:18px;font-size:18px}
+/* layout */
+.main{max-width:1100px;margin:24px auto;padding:0 16px}
+/* nav */
+.nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px}
+.navbtn{background:rgba(201,168,76,.1);border:1px solid var(--border);color:var(--mut);border-radius:10px;padding:7px 14px;font-size:12px;cursor:pointer;transition:all .2s;font-family:inherit}
+.navbtn:hover,.navbtn.on{background:rgba(201,168,76,.24);color:var(--gold2);border-color:var(--gold)}
+/* stats grid */
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:20px}
+.stat{background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:14px 16px}
+.stat .lbl{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.8px}
+.stat .val{font-size:26px;font-weight:700;color:var(--gold2);margin-top:4px}
+.stat.warn .val{color:var(--warn)} .stat.bad .val{color:var(--bad)} .stat.good .val{color:var(--good)}
+.stat .sub{font-size:11px;color:var(--mut);margin-top:3px}
+/* sections */
+.section{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:16px}
+.section h3{color:var(--gold2);margin-bottom:12px;font-size:14px;display:flex;align-items:center;gap:10px}
+.section h3 small{font-size:11px;color:var(--mut);font-weight:400}
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;color:var(--mut);padding:6px 8px;border-bottom:1px solid var(--border);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.6px;white-space:nowrap}
+.tbl td{padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.08);vertical-align:top}
+.tbl tr:last-child td{border:none}
+.tbl tr:hover td{background:rgba(201,168,76,.04)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--gold)}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* status badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:.3px;border:1px solid}
+.badge.PAID,.badge.ADMIT,.badge.VALID{color:var(--good);border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.1)}
+.badge.PENDING,.badge.PAYMENT_PROCESSING{color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.1)}
+.badge.FAILED,.badge.EXPIRED,.badge.CANCELLED,.badge.INVALID{color:var(--bad);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.1)}
+.badge.REFUND_REQUIRED{color:#f97316;border-color:rgba(249,115,22,.4);background:rgba(249,115,22,.1)}
+.badge.USED{color:var(--mut);border-color:var(--border);background:rgba(255,255,255,.05)}
+/* forms */
+label{display:block;font-size:11px;color:var(--mut);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px}
+input,select{width:100%;background:rgba(14,9,4,.4);border:1px solid var(--border);color:var(--txt);border-radius:9px;padding:8px 11px;font-size:13px;outline:none;font-family:inherit}
+input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,168,76,.12)}
+input::placeholder{color:rgba(240,232,216,.3)}
+.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.row>*{flex:1;min-width:140px}
+/* buttons */
+.btn{display:inline-block;background:rgba(201,168,76,.14);border:1px solid var(--gold);color:var(--gold2);border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:rgba(201,168,76,.28);color:#fff}
+.btn:disabled{opacity:.35;cursor:wait}
+.btn.ghost{background:transparent;border-color:var(--border);color:var(--mut)}
+.btn.ghost:hover{color:#fff;border-color:var(--gold)}
+.btn.danger{border-color:#f87171;color:#f87171;background:rgba(248,113,113,.1)}
+.btn.danger:hover{background:rgba(248,113,113,.22)}
+.btn.sm{padding:5px 11px;font-size:11px;border-radius:7px}
+/* misc */
+.err{color:var(--bad);font-size:12px;margin-top:6px;display:none}
+.ok{color:var(--good);font-size:12px;margin-top:6px}
+.note{font-size:11px;color:var(--mut);margin-top:8px;line-height:1.55}
+.empty{text-align:center;color:var(--mut);padding:22px 8px;font-size:13px}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.tag.review{color:var(--warn);font-size:11px;font-weight:700;padding:2px 8px;background:rgba(251,191,36,.12);border-radius:99px;border:1px solid rgba(251,191,36,.4)}
+.tier-row{background:rgba(201,168,76,.06);border:1px solid var(--border);border-radius:11px;padding:10px 13px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.tier-row b{color:var(--gold2)}
+.tier-row .meta{font-size:11px;color:var(--mut)}
+@media(max-width:600px){.main{padding:0 10px}.stats{grid-template-columns:repeat(2,1fr)}.tbl td,.tbl th{padding:5px 5px}}
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div id="loginWrap">
+  <h2>Admin login</h2>
+  <label for="tok">Admin token</label>
+  <input id="tok" type="password" autocomplete="current-password" placeholder="Paste your ADMIN_TOKEN">
+  <div class="err" id="loginErr"></div>
+  <button type="button" class="btn" style="margin-top:14px;width:100%" id="loginBtn" data-act="login">Login</button>
+</div>
+
+<!-- ── APP (hidden until logged in) ── -->
+<div id="appWrap" hidden>
+  <div class="bar">
+    <h1>🎟 404 Pool Party Admin</h1>
+    <span class="role" id="roleBadge">Admin</span>
+    <button type="button" class="btn ghost sm" data-act="logout">Logout</button>
+    <a href="/" class="btn ghost sm" target="_blank" rel="noopener">↗ Site</a>
+  </div>
+
+  <div class="main">
+    <!-- STATS -->
+    <div class="stats" id="stats"></div>
+
+    <!-- NAV TABS -->
+    <div class="nav">
+      <button class="navbtn on" data-tab="overview">Overview</button>
+      <button class="navbtn" data-tab="orders">Orders</button>
+      <button class="navbtn" data-tab="tickets">Tickets</button>
+      <button class="navbtn" data-tab="review">Review ⚠</button>
+      <button class="navbtn" data-tab="promos">Promo codes</button>
+      <button class="navbtn" data-tab="events">Events</button>
+      <button class="navbtn" data-tab="manual">Manual confirm</button>
+    </div>
+
+    <!-- TAB PANELS -->
+    <div id="overview" class="tabpanel">
+      <div id="tierCards"></div>
+      <div class="section" id="auditBox">
+        <h3>Audit log <small>last 50 actions</small></h3>
+        <div class="wrap"><table class="tbl" id="auditTbl"><thead><tr><th>When</th><th>Action</th><th>Resource</th><th>ID</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+
+    <div id="orders" class="tabpanel" hidden>
+      <div class="section">
+        <h3>Orders</h3>
+        <div class="row" style="margin-bottom:12px">
+          <div><label for="oQ">Search</label><input id="oQ" placeholder="name, email, phone, order no…"></div>
+          <div><label for="oStatus">Status</label>
+            <select id="oStatus"><option value="">All</option><option>PAID</option><option>PENDING</option><option>PAYMENT_PROCESSING</option><option>FAILED</option><option>EXPIRED</option><option>REFUND_REQUIRED</option></select>
+          </div>
+          <div style="flex:0;display:flex;gap:6px;align-items:flex-end">
+            <button class="btn sm" data-act="searchOrders">Search</button>
+            <a id="dlOrders" href="#" class="btn sm ghost" data-act="dlOrders">CSV ↓</a>
+          </div>
+        </div>
+        <div class="wrap"><table class="tbl" id="orderTbl">
+          <thead><tr><th>Order</th><th>Name</th><th>Phone</th><th>Ticket type</th><th>Qty</th><th>Total</th><th>Status</th><th>Paid at</th><th>Receipt</th><th>Send</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div id="tickets" class="tabpanel" hidden>
+      <div class="section">
+        <h3>Tickets</h3>
+        <div class="row" style="margin-bottom:12px">
+          <div><label for="tkQ">Search</label><input id="tkQ" placeholder="ticket no, name, phone, order…"></div>
+          <div style="flex:0;display:flex;gap:6px;align-items:flex-end">
+            <button class="btn sm" data-act="searchTickets">Search</button>
+            <a id="dlAttendees" class="btn sm ghost" data-act="dlAttendees">Attendees CSV ↓</a>
+          </div>
+        </div>
+        <div class="wrap"><table class="tbl" id="ticketTbl">
+          <thead><tr><th>Ticket</th><th>Holder</th><th>Type</th><th>Status</th><th>Issued at</th><th>Used at</th><th>Order</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div id="review" class="tabpanel" hidden>
+      <div class="note" style="margin-bottom:12px">These orders need your attention — money may have moved without a ticket being issued.</div>
+
+      <div class="section">
+        <h3>Expired after prompt sent <small>payment may have gone through</small></h3>
+        <div class="wrap"><table class="tbl" id="stuckTbl">
+          <thead><tr><th>Order</th><th>Name</th><th>Phone</th><th>Amount</th><th>Prompt sent at</th><th>Created</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+
+      <div class="section">
+        <h3>Refund required <small>paid but sold out, customer must be refunded</small></h3>
+        <div class="wrap"><table class="tbl" id="refundTbl">
+          <thead><tr><th>Order</th><th>Name</th><th>Phone</th><th>Amount</th><th>M-Pesa receipt</th><th>Paid at</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+
+      <div class="section">
+        <h3>Duplicate payments <small>a second M-Pesa confirmation arrived for a paid order</small></h3>
+        <div class="wrap"><table class="tbl" id="dupTbl">
+          <thead><tr><th>Order</th><th>Name</th><th>Phone</th><th>Amount</th><th>Transaction ID</th><th>When</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+
+      <div class="section">
+        <h3>Webhook problems <small>last 50 rejected or errored webhooks</small></h3>
+        <div class="wrap"><table class="tbl" id="hookTbl">
+          <thead><tr><th>Order ref</th><th>TinyPesa ID</th><th>Amount</th><th>Outcome</th><th>Error</th><th>When</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div id="promos" class="tabpanel" hidden>
+      <div class="section" style="max-width:500px">
+        <h3>Create promo code</h3>
+        <div class="row">
+          <div><label for="pcCode">Code</label><input id="pcCode" placeholder="LAKEVIEW20" maxlength="32" autocapitalize="characters"></div>
+          <div><label for="pcKind">Type</label><select id="pcKind"><option value="PERCENT">% off</option><option value="FIXED">KES off</option></select></div>
+        </div>
+        <div class="row">
+          <div><label for="pcVal">Value</label><input id="pcVal" type="number" min="1" placeholder="e.g. 20 or 500"></div>
+          <div><label for="pcMax">Max uses (blank = unlimited)</label><input id="pcMax" type="number" min="1" placeholder="50"></div>
+        </div>
+        <div class="row">
+          <div><label for="pcExp">Expires (blank = never)</label><input id="pcExp" type="datetime-local"></div>
+          <div><label for="pcEvent">Event ID (blank = all events)</label><input id="pcEvent" type="number" min="1" placeholder="1"></div>
+        </div>
+        <div class="err" id="promoErr"></div>
+        <button type="button" class="btn" style="margin-top:12px" data-act="createPromo">Create code</button>
+      </div>
+      <div class="section">
+        <h3>Active codes</h3>
+        <div id="promoList"></div>
+      </div>
+    </div>
+
+    <div id="events" class="tabpanel" hidden>
+      <div class="section" style="max-width:500px">
+        <h3>Create event</h3>
+        <label for="evName">Event name</label><input id="evName" placeholder="404 Error Pool Party — Vol 2" maxlength="120">
+        <label for="evDesc">Description (optional)</label><input id="evDesc" placeholder="Short tagline" maxlength="300">
+        <div class="row">
+          <div><label for="evVenue">Venue</label><input id="evVenue" placeholder="The Lagoon Resort &amp; Spa, Kirinyaga" maxlength="160"></div>
+          <div><label for="evDate">Date</label><input id="evDate" type="date"></div>
+          <div><label for="evTime">Start time</label><input id="evTime" type="time" value="21:00"></div>
+        </div>
+        <div class="err" id="evErr"></div>
+        <button type="button" class="btn" style="margin-top:12px" data-act="createEvent">Create event</button>
+      </div>
+
+      <div class="section">
+        <h3>Add ticket type to an event</h3>
+        <div class="row">
+          <div><label for="ttEvent">Event ID</label><input id="ttEvent" type="number" min="1" placeholder="1"></div>
+          <div><label for="ttName">Name</label><input id="ttName" placeholder="Single" maxlength="80"></div>
+        </div>
+        <div class="row">
+          <div><label for="ttDesc">Description</label><input id="ttDesc" placeholder="1 person · free drinks" maxlength="160"></div>
+          <div><label for="ttPrice">Price (KES)</label><input id="ttPrice" type="number" min="1" placeholder="500"></div>
+          <div><label for="ttQty">Total quantity</label><input id="ttQty" type="number" min="1" placeholder="200"></div>
+        </div>
+        <div class="err" id="ttErr"></div>
+        <button type="button" class="btn" style="margin-top:12px" data-act="createType">Add ticket type</button>
+      </div>
+
+      <div class="section">
+        <h3>Events</h3>
+        <div id="eventList"></div>
+      </div>
+    </div>
+
+    <div id="manual" class="tabpanel" hidden>
+      <div class="section" style="max-width:500px">
+        <h3>Manually confirm a payment</h3>
+        <p class="note">Use this ONLY when you can see in the TinyPesa dashboard or an M-Pesa SMS that the customer paid, but no ticket was issued. The M-Pesa receipt code prevents double-issuing.</p>
+        <label for="mOrder">Order number</label>
+        <input id="mOrder" placeholder="HG-XXXXXXXXXX" autocapitalize="characters" maxlength="16">
+        <label for="mReceipt">M-Pesa receipt (e.g. SGH7K2L9QX)</label>
+        <input id="mReceipt" placeholder="SGH7K2L9QX" autocapitalize="characters" maxlength="12">
+        <label for="mNote">Note (optional)</label>
+        <input id="mNote" placeholder="Confirmed via TinyPesa dashboard" maxlength="200">
+        <div class="err" id="mErr"></div>
+        <div class="ok" id="mOk" hidden></div>
+        <button type="button" class="btn" style="margin-top:12px" data-act="manualConfirm">Issue ticket</button>
+      </div>
+
+      <div class="section" style="max-width:500px">
+        <h3>Reissue a ticket (invalidates old QR)</h3>
+        <p class="note">If someone screenshotted or forwarded a ticket's QR, reissue it. The holder retrieves the new QR via "Find my ticket".</p>
+        <label for="riTicket">Ticket number</label>
+        <input id="riTicket" placeholder="TICKET-XXXXXXXX" autocapitalize="characters" maxlength="16">
+        <div class="err" id="riErr"></div>
+        <div class="ok" id="riOk" hidden></div>
+        <button type="button" class="btn" style="margin-top:12px" data-act="reissue">Reissue</button>
+      </div>
+    </div>
+
+  </div><!-- .main -->
+</div><!-- #appWrap -->
+
+<script src="/js/admin.js" defer></script>
+</body>
+</html>
