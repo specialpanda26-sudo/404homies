@@ -46,6 +46,15 @@ function safeEqual(a, b) {
 function qrSignature(ticketNumber, version) {
   return crypto.createHmac("sha256", cfg.ticketSecret).update(`${ticketNumber}:${version}`).digest("hex").slice(0, 24);
 }
+/** One-tap ticket link: "<orderNumber>.<sig>". Signed with TICKET_SECRET, so nothing extra is stored. */
+const linkSig = (orderNumber) => crypto.createHmac("sha256", cfg.ticketSecret).update(`link:${orderNumber}`).digest("hex").slice(0, 20);
+const linkToken = (orderNumber) => `${orderNumber}.${linkSig(orderNumber)}`;
+function parseLinkToken(tok) {
+  const m = String(tok || "").trim().match(/^(HG-[0-9A-Z]{10})\.([0-9a-f]{20})$/i);
+  if (!m) return null;
+  const orderNumber = m[1].toUpperCase();
+  return safeEqual(linkSig(orderNumber), m[2].toLowerCase()) ? orderNumber : null;
+}
 const qrFor = (ticketNumber, version) => `${ticketNumber}.${qrSignature(ticketNumber, version)}`;
 
 /** → { ticketNumber, signature } | null */
@@ -93,5 +102,5 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 module.exports = {
   HttpError, normalizePhone, generateOrderNumber, generateTicketNumber, generateAccessKey, sha256,
-  safeEqual, qrFor, qrSignature, parseTicketCode, extractCallback, EMAIL_RE, cleanName, toCsv, wrap,
+  safeEqual, qrFor, qrSignature, linkToken, parseLinkToken, parseTicketCode, extractCallback, EMAIL_RE, cleanName, toCsv, wrap,
 };

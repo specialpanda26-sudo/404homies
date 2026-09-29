@@ -137,7 +137,7 @@ router.post("/promo/check", limit(20), U.wrap(async (req, res) => {
   res.json({ code: p.promo, subtotal: p.subtotal, discount: p.discount, total: p.total });
 }));
 
-router.post("/orders", limit(10), U.wrap(async (req, res) => {
+router.post("/orders", limit(40), U.wrap(async (req, res) => {
   const b = req.body || {};
   const name = U.cleanName(b.name);
   const email = String(b.email || "").trim().toLowerCase().slice(0, 120);
@@ -190,7 +190,7 @@ router.post("/orders", limit(10), U.wrap(async (req, res) => {
   });
 }));
 
-router.post("/payments/tinypesa/initiate", limit(8), U.wrap(async (req, res) => {
+router.post("/payments/tinypesa/initiate", limit(40), U.wrap(async (req, res) => {
   const order = await findOrder(req.body?.orderNumber, req.body?.accessKey);
 
   if (order.status === "PAID" || order.status === "REFUND_REQUIRED") throw new U.HttpError(409, "This order is already paid.");
@@ -319,7 +319,7 @@ router.get("/orders/:orderNumber/status", limit(120), U.wrap(async (req, res) =>
 }));
 
 // "Find my ticket": phone used at checkout + EITHER the order number OR the M-Pesa confirmation code from the SMS.
-router.post("/tickets/lookup", limit(8), U.wrap(async (req, res) => {
+router.post("/tickets/lookup", limit(20), U.wrap(async (req, res) => {
   const notFound = new U.HttpError(404, "We couldn't find a paid order with those details.");
   let phone;
   try { phone = U.normalizePhone(req.body?.phone); } catch { throw notFound; }
@@ -333,6 +333,17 @@ router.post("/tickets/lookup", limit(8), U.wrap(async (req, res) => {
   if (!o) throw notFound;
   res.set("Cache-Control", "no-store");
   res.json({ orderNumber: o.order_number, tickets: await loadTickets(o.id) });
+}));
+
+// One-tap link sent from Admin → Orders → WhatsApp. The signed token proves the admin issued it.
+router.get("/tickets/link/:token", limit(30), U.wrap(async (req, res) => {
+  const orderNumber = U.parseLinkToken(req.params.token);
+  const notFound = new U.HttpError(404, "This ticket link isn't valid. Use \u201cFind my ticket\u201d instead.");
+  if (!orderNumber) throw notFound;
+  const { rows } = await query("SELECT id FROM orders WHERE order_number = $1 AND status = 'PAID'", [orderNumber]);
+  if (!rows[0]) throw notFound;
+  res.set("Cache-Control", "no-store");
+  res.json({ orderNumber, tickets: await loadTickets(rows[0].id) });
 }));
 
 // Read-only, no personal data. (Door staff use /api/staff/* instead.)

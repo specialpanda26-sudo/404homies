@@ -79,7 +79,7 @@ router.get("/orders", U.wrap(async (req, res) => {
       ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY o.created_at DESC LIMIT 200`,
     params
   );
-  res.json(rows);
+  res.json(rows.map((r) => (r.status === "PAID" ? { ...r, link: U.linkToken(r.order_number) } : r)));
 }));
 
 router.get("/tickets", U.wrap(async (req, res) => {
@@ -190,6 +190,7 @@ router.post("/promos", U.wrap(async (req, res) => {
     res.json(rows[0]);
   } catch (e) {
     if (e.code === "23505") throw new U.HttpError(409, "That code already exists.");
+    if (e.code === "23503") throw new U.HttpError(404, "No event with that ID.");
     throw e;
   }
 }));
@@ -212,8 +213,8 @@ router.post("/events", U.wrap(async (req, res) => {
   const name = U.cleanName(b.name, 120);
   const venue = U.cleanName(b.venue, 160);
   if (!name || !venue) throw bad("Name and venue are required.");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.date || ""))) throw bad("Date must look like 2026-10-03.");
-  if (!/^\d{2}:\d{2}$/.test(String(b.time || ""))) throw bad("Time must look like 21:00.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) || Number.isNaN(new Date(b.date + "T00:00:00Z").getTime())) throw bad("Date must look like 2026-10-03.");
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.time || ""))) throw bad("Time must look like 21:00.");
   const { rows } = await query(
     "INSERT INTO events (name, description, venue, event_date, event_time) VALUES ($1,$2,$3,$4,$5) RETURNING id",
     [name, U.cleanName(b.description, 300) || null, venue, b.date, b.time]
@@ -259,10 +260,16 @@ router.post("/ticket-types", U.wrap(async (req, res) => {
   const b = req.body || {};
   const name = U.cleanName(b.name, 80);
   if (!name) throw bad("Name is required.");
-  const { rows } = await query(
-    "INSERT INTO ticket_types (event_id, name, description, price, quantity_total) VALUES ($1,$2,$3,$4,$5) RETURNING id",
-    [int(b.eventId, 1, 2147483647, "Event"), name, U.cleanName(b.description, 160) || null, int(b.price, 1, 1000000, "Price"), int(b.quantity, 0, 1000000, "Quantity")]
-  );
+  let rows;
+  try {
+    ({ rows } = await query(
+      "INSERT INTO ticket_types (event_id, name, description, price, quantity_total) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+      [int(b.eventId, 1, 2147483647, "Event"), name, U.cleanName(b.description, 160) || null, int(b.price, 1, 1000000, "Price"), int(b.quantity, 0, 1000000, "Quantity")]
+    ));
+  } catch (e) {
+    if (e.code === "23503") throw new U.HttpError(404, "No event with that ID. Check the ID shown next to the event name.");
+    throw e;
+  }
   await audit("TYPE_CREATED", "ticket_type", rows[0].id, { name }, req.ip);
   res.json(rows[0]);
 }));

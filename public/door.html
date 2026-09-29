@@ -38,6 +38,9 @@
       <input id="man" autocapitalize="characters" autocomplete="off" placeholder="TICKET-XXXXXXXX" style="font-family:ui-monospace,Menlo,monospace">
       <button class="btn" type="button" style="margin-top:0;flex:0 0 110px" data-act="manual">Verify</button>
     </div>
+    <label style="margin-top:14px" for="srch">Lost their QR? Search by name or phone</label>
+    <input id="srch" type="search" autocomplete="off" placeholder="e.g. Jane, 0712 345 678" maxlength="60">
+    <div class="log" style="margin-top:10px"><div id="srchList"></div></div>
     <div class="verdict" id="verdict" role="status" aria-live="assertive"></div>
     <div class="log"><h4>Check-in log</h4><div id="logList"><div class="empty" style="padding:14px">No scans yet.</div></div></div>
     <button class="btn ghost" type="button" data-act="logout">Lock scanner</button>

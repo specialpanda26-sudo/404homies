@@ -84,12 +84,12 @@
     list.insertBefore(it, list.firstChild); while (list.children.length > 30) list.lastChild.remove();
   }
 
-  async function onCode(code, force) {
+  async function onCode(code, force, forceAdmit) {
     code = String(code).trim(); if (!code || S.busy) return;
     if (!force && code === S.lastCode && Date.now() - S.lastAt < 3500) return;
     S.lastCode = code; S.lastAt = Date.now(); S.busy = true;
     try {
-      const admit = $('admitMode').checked;
+      const admit = forceAdmit || $('admitMode').checked;
       const r = await api('/api/staff/' + (admit ? 'admit' : 'check'), { method: 'POST', headers: { 'X-Staff-Token': S.staff }, body: { code } });
       const who = (r.holder ? r.holder + ' \u00b7 ' : '') + (r.type || '') + (r.typeDesc ? ' (' + r.typeDesc.split('\u00b7')[0].trim() + ')' : '');
       if (r.result === 'ADMIT') { verdict('ok', 'ADMIT', who); S.local++; logScan(code, true, 'admitted'); const n = $('cAdm'); n.textContent = +n.textContent + 1; }
@@ -105,8 +105,35 @@
   }
   function manual() { const v = $('man').value.trim().toUpperCase(); if (!v || S.busy) return; onCode(v, true); $('man').value = ''; }
 
+  /* ── search by name / phone (for guests who lost their QR) ── */
+  let srchTimer = null, srchSeq = 0;
+  function renderResults(rows) {
+    const box = $('srchList');
+    if (!rows) { box.innerHTML = ''; return; }
+    if (!rows.length) { box.innerHTML = '<div class="empty" style="padding:10px">No matching ticket.</div>'; return; }
+    box.innerHTML = rows.map((t) => {
+      const st = t.status === 'USED' ? 'already used' : t.status === 'CANCELLED' ? 'cancelled' : 'valid';
+      const btn = t.status === 'VALID' ? '<button class="btn" type="button" style="margin:0;flex:0 0 84px;padding:8px" data-act="admitTk:' + esc(t.ticketNumber) + '">Admit</button>' : '';
+      return '<div class="item"><span class="dot ' + (t.status === 'VALID' ? 'g' : 'b') + '"></span><span style="flex:1;min-width:0"><b>' + esc(t.holder) + '</b><br><span class="t">' + esc(t.type) + ' \u00b7 ' + esc(t.ticketNumber) + ' \u00b7 ends ' + esc(t.phoneTail) + ' \u00b7 ' + st + '</span></span>' + btn + '</div>';
+    }).join('');
+  }
+  function doSearch() {
+    const q = $('srch').value.trim();
+    if (q.length < 3 || !S.staff) { renderResults(null); return; }
+    const my = ++srchSeq;
+    api('/api/staff/search?q=' + encodeURIComponent(q), { headers: { 'X-Staff-Token': S.staff } })
+      .then((rows) => { if (my === srchSeq) renderResults(rows); })
+      .catch((e) => { if (e.status === 401) { logout(); setErr('loginErr', 'Session ended \u2014 enter the staff code again.'); } });
+  }
+  $('srch').addEventListener('input', () => { clearTimeout(srchTimer); srchTimer = setTimeout(doSearch, 300); });
+
   const actions = { login: () => login(), logout, camOn, camOff, manual };
-  document.addEventListener('click', (e) => { const el = e.target.closest('[data-act]'); if (el && actions[el.getAttribute('data-act')]) actions[el.getAttribute('data-act')](); });
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act]'); if (!el) return;
+    const a = el.getAttribute('data-act');
+    if (a.indexOf('admitTk:') === 0) { onCode(a.slice(8), true, true).then(() => { $('srch').value = ''; renderResults(null); }); return; }
+    if (actions[a]) actions[a]();
+  });
   document.addEventListener('keydown', (e) => { if (e.key !== 'Enter') return; if (e.target.id === 'tok') login(); if (e.target.id === 'man') manual(); });
   window.addEventListener('pagehide', camOff);
 

@@ -81,7 +81,7 @@
   <!-- STEP 3 -->
   <div class="panel glass" id="p3">
     <div id="noT">
-      <div class="empty" style="padding-bottom:6px">Error 404: ticket not found on this phone.<br>Paid already? Find it with the phone number you paid from.</div>
+      <div class="empty" id="noTmsg" style="padding-bottom:6px">Error 404: ticket not found on this phone.<br>Paid already? Find it with the phone number you paid from.</div>
       <label for="fPhone">M-Pesa phone number</label>
       <input id="fPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678">
       <label for="fCode">M-Pesa code or order number</label>
@@ -103,6 +103,7 @@
         <button class="btn" type="button" data-act="dlAll">Download ticket<span id="dlPl"></span></button>
         <button class="btn ghost" type="button" data-act="again">Book another ticket</button>
       </div>
+      <p class="center" style="margin-top:6px"><button class="linkbtn" type="button" data-act="findMore">QR not working or a ticket missing? Find my ticket</button></p>
       <p class="note">Screenshot or download your ticket. It's also saved on this phone, and you can always use &ldquo;Find my ticket&rdquo; with your M-Pesa code.</p>
     </div>
   </div>

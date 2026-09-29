@@ -5,6 +5,22 @@ Stack: **Node.js + Express** (backend) · **Supabase Postgres** (database) · **
 
 ---
 
+## v2.3 — free upgrades (no paid services)
+
+- **One-tap ticket link.** Admin → Orders → WhatsApp now sends a link like `https://your-site/?t=<token>` that opens the buyer's tickets directly (no "Find my ticket" typing). The token is signed with `TICKET_SECRET`; nothing extra is stored. If the link fails, the message still explains the manual way.
+- **Door search.** On `/door`, staff can search by name, phone (0712… or 254712…), ticket number or order number and tap **Admit** for a guest who lost their QR. Phones are shown as the last 3 digits only.
+
+## v2.2 — bug-fix release
+
+- Buying a second ticket on the same phone no longer wipes the first one; saved tickets are merged, and refreshed from the server (so a reissued QR or a cancelled ticket shows correctly).
+- "Find my ticket" is now reachable even when tickets are already saved on the phone (previously a stale/reissued QR could not be replaced).
+- A late failure callback for an *older* M-Pesa prompt can no longer mark an order FAILED while a newer prompt is still pending.
+- Service worker no longer caches error pages (404/500/429) as the offline copy, and never touches `/admin`, `/door` or `/health`.
+- Admin: creating an event with an impossible date (e.g. 2026-13-45) or a ticket type/promo for an unknown event ID now gives a clear error instead of a 500.
+- JS/CSS revalidate on every load, so a deploy can't leave phones running old code against the new API.
+- `/admin` and `/door` send `X-Robots-Tag: noindex`; added `robots.txt`.
+- Rate limits for orders / M-Pesa prompts / ticket lookup raised (many phones share one IP on mobile data).
+
 ## v2.1 — bug-fix release
 
 - Admin login and CSV exports fixed (token was not being sent).

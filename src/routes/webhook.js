@@ -49,6 +49,11 @@ async function handle(req, res) {
     }
 
     if (resultCode !== 0) {
+      // A late failure for an OLDER prompt (customer hit Resend) must not fail an order whose newer prompt is still live.
+      if (tinyPesaId && order.tinypesa_request_id && tinyPesaId !== order.tinypesa_request_id) {
+        outcome = "STALE_FAILURE_IGNORED";
+        return res.status(200).json({ received: true });
+      }
       // Only an unpaid order can be failed; a forged/late failure never touches a paid one.
       const r = await query(
         `UPDATE orders SET status = 'FAILED', failure_code = $2, failure_reason = $3

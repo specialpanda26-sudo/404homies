@@ -16,14 +16,14 @@ router.use((req, res, next) => {
   next();
 });
 
-const SELECT = `SELECT t.id, t.ticket_number, t.holder_name, t.status, t.used_at, t.qr_version,
+const SELECT = `SELECT t.id, t.ticket_number, t.holder_name, t.holder_phone, t.status, t.used_at, t.qr_version,
                        tt.name AS type_name, tt.description AS type_desc, e.name AS event_name, o.order_number
                   FROM tickets t JOIN ticket_types tt ON tt.id = t.type_id
                   JOIN events e ON e.id = t.event_id JOIN orders o ON o.id = t.order_id`;
 
 async function resolve(code) {
   const p = U.parseTicketCode(code);
-  if (!p) return { error: "Not a Hidden Gem ticket." };
+  if (!p) return { error: "Not a valid ticket for this event." };
   const { rows } = await query(`${SELECT} WHERE t.ticket_number = $1`, [p.ticketNumber]);
   const t = rows[0];
   if (!t) return { error: "Ticket not found." };
@@ -45,6 +45,25 @@ router.get("/summary", U.wrap(async (req, res) => {
             COUNT(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled FROM tickets`
   );
   res.json(rows[0]);
+}));
+
+// Find a guest who lost their QR: name, phone (0712… or 254712…), ticket number or order number.
+router.get("/search", U.wrap(async (req, res) => {
+  const raw = String(req.query.q || "").trim().slice(0, 60);
+  if (raw.length < 3) return res.json([]);
+  const esc = (s) => s.replace(/[%_\\]/g, "\\$&");
+  const digits = raw.replace(/\D/g, "");
+  const phone = digits.length >= 4 ? (digits.startsWith("0") ? "254" + digits.slice(1) : digits) : null;
+  const params = [`%${esc(raw)}%`];
+  let phoneClause = "";
+  if (phone) { params.push(`%${esc(phone)}%`); phoneClause = " OR t.holder_phone LIKE $2"; }
+  const { rows } = await query(
+    `${SELECT}
+      WHERE t.holder_name ILIKE $1 OR t.ticket_number ILIKE $1 OR o.order_number ILIKE $1${phoneClause}
+      ORDER BY t.holder_name LIMIT 12`,
+    params
+  );
+  res.json(rows.map((t) => ({ ...shape(t), phoneTail: String(t.holder_phone || "").slice(-3) })));
 }));
 
 // Look, don't touch.

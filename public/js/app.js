@@ -35,7 +35,7 @@
 
   const S = {
     cfg: {}, events: [], ev: null, tierId: null, qty: 1,
-    ready: false, findMode: false, order: null, sig: '', tickets: [],
+    ready: false, findMode: false, showFind: false, order: null, sig: '', tickets: [],
     poll: null, pollStart: 0, cdLeft: 0, cdTimer: null, clock: null,
   };
   const tier = () => (S.ev ? S.ev.ticketTypes.find((t) => String(t.id) === String(S.tierId)) : null);
@@ -299,9 +299,51 @@
     } catch (e) { toast(e.message); b.disabled = false; if (e.status === 410 || e.status === 409) tick(); }
   }
 
+  /* Keep every ticket this phone has ever fetched. A newer copy of the same ticket (fresh QR after a
+   * reissue, or a USED/CANCELLED status) replaces the old one; a second purchase no longer wipes the first. */
+  function mergeTickets(list) {
+    const map = new Map(S.tickets.map((t) => [t.ticketNumber, t]));
+    (list || []).forEach((t) => map.set(t.ticketNumber, t));
+    S.tickets = Array.from(map.values());
+    store.set('pp_tickets', { tickets: S.tickets, savedAt: Date.now() });
+  }
+
+  /* Re-fetch saved tickets we hold an access key for, so a reissued QR or a cancelled ticket shows correctly. */
+  async function refreshSaved() {
+    if (!S.tickets.length || !navigator.onLine) return;
+    const keys = store.get('pp_keys') || {};
+    const links = store.get('pp_links') || {};
+    const nums = Array.from(new Set(S.tickets.map((t) => t.orderNumber))).filter((n) => keys[n] || links[n]).slice(0, 5);
+    let changed = false;
+    for (const n of nums) {
+      try {
+        const d = keys[n]
+          ? await api('/api/orders/' + encodeURIComponent(n) + '/status', { headers: { 'X-Access-Key': keys[n] } })
+          : Object.assign({ status: 'PAID' }, await api('/api/tickets/link/' + encodeURIComponent(links[n])));
+        if (d.status === 'PAID' && d.tickets && d.tickets.length) { mergeTickets(d.tickets); changed = true; }
+      } catch (e) { /* offline or not found: keep the saved copy */ }
+    }
+    if (changed) renderTickets();
+  }
+
+  /* One-tap link from the organiser's WhatsApp message: /?t=<token> opens the ticket straight away. */
+  async function openFromLink() {
+    let tok = null;
+    try { tok = new URLSearchParams(location.search).get('t'); } catch (e) { /* old browser */ }
+    if (!tok) return false;
+    try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
+    try {
+      const d = await api('/api/tickets/link/' + encodeURIComponent(tok));
+      const links = store.get('pp_links') || {}; links[d.orderNumber] = tok; store.set('pp_links', links);
+      mergeTickets(d.tickets); renderTickets(); updateTabs(); go(3);
+      return true;
+    } catch (e) { toast(e.message); return false; }
+  }
+
   function finish(tickets) {
     stopPolling(); clearInterval(S.cdTimer); slow = false;
-    S.tickets = tickets; store.set('pp_tickets', { tickets, savedAt: Date.now() }); store.del('pp_order');
+    if (S.order) { const k = store.get('pp_keys') || {}; k[S.order.orderNumber] = S.order.accessKey; store.set('pp_keys', k); }
+    mergeTickets(tickets); store.del('pp_order');
     S.order = null; S.sig = ''; view('idle'); payBtnLabel();
     renderTickets(); updateTabs(); go(3);
     if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
@@ -343,7 +385,7 @@
 
   function renderTickets() {
     const has = S.tickets.length > 0;
-    show('noT', !has); show('tkWrap', has);
+    show('noT', !has || S.showFind); show('noTmsg', !has); show('tkWrap', has);
     if (!has) return;
     $('tkList').innerHTML = S.tickets.map(ticketHTML).join('');
     document.querySelectorAll('#tkList .tk canvas').forEach((cv, i) => drawQR(cv, S.tickets[i].qr));
@@ -429,7 +471,7 @@
     if (code.length < 6) { setErr('fErr', 'Enter the M-Pesa code from your SMS (e.g. SGH7K2L9QX) or your order number.'); b.disabled = false; return; }
     try {
       const d = await api('/api/tickets/lookup', { method: 'POST', body: { phone, code } });
-      S.tickets = d.tickets; store.set('pp_tickets', { tickets: d.tickets, savedAt: Date.now() }); renderTickets(); updateTabs();
+      mergeTickets(d.tickets); S.showFind = false; $('fCode').value = ''; renderTickets(); updateTabs(); toast('Ticket found.');
     } catch (e) { setErr('fErr', e.message); } finally { b.disabled = false; }
   }
   function findOpen() { S.findMode = true; updateTabs(); go(3); }
@@ -451,7 +493,7 @@
   /* ───────── events wiring ───────── */
   const actions = {
     noop() {}, go: (n) => go(+n), bump, tier: pickTier, toPay, pay, retry, restart, resend, changeNumber, checkNow: () => tick(),
-    dlAll, ics, share, find, findOpen, again: () => { S.order = null; S.ready = false; updateTabs(); go(1); },
+    dlAll, ics, share, find, findOpen, findMore: () => { S.showFind = !S.showFind; renderTickets(); if (S.showFind) $('fPhone').focus(); }, again: () => { S.order = null; S.ready = false; updateTabs(); go(1); },
     terms: () => { $('terms').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
   };
   document.addEventListener('click', (e) => {
@@ -495,8 +537,10 @@
     if (saved && saved.tickets && saved.tickets.length) { S.tickets = saved.tickets; renderTickets(); }
     updateTabs(); view('idle');
     try { await loadEvents(); } catch (e) { $('hero').innerHTML = '<h1>Tickets</h1><p>' + esc(e.message) + '</p>'; $('tiers').innerHTML = '<div class="empty">Couldn\'t load tickets. Pull to refresh.</div>'; }
-    if (S.tickets.length) go(3); // came back to the site → their ticket is right there
+    const opened = await openFromLink();
+    if (!opened && S.tickets.length) go(3); // came back to the site → their ticket is right there
     resume();
+    refreshSaved();
     setInterval(() => { if (!document.hidden && $('p1').classList.contains('on')) loadEvents().catch(() => {}); }, 60000);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   }

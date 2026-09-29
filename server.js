@@ -99,12 +99,14 @@ app.use(
     index: false,
     maxAge: "1h",
     setHeaders(res, file) {
-      if (/\.(html|webmanifest)$/.test(file) || file.endsWith("sw.js")) res.setHeader("Cache-Control", "no-cache");
+      // JS/CSS revalidate on every load (cheap ETag check) so a deploy never leaves phones running old code against a new API.
+      if (/\.(html|webmanifest|js|css)$/.test(file)) res.setHeader("Cache-Control", "no-cache");
+      if (/(admin|door)\.html$/.test(file)) res.setHeader("X-Robots-Tag", "noindex, nofollow");
     },
   })
 );
-app.get("/admin", (req, res) => res.sendFile(path.join(PUBLIC, "admin.html")));
-app.get("/door", (req, res) => res.sendFile(path.join(PUBLIC, "door.html"))); // staff-only scanner, not linked from the public site
+app.get("/admin", (req, res) => res.set("X-Robots-Tag", "noindex, nofollow").sendFile(path.join(PUBLIC, "admin.html")));
+app.get("/door", (req, res) => res.set("X-Robots-Tag", "noindex, nofollow").sendFile(path.join(PUBLIC, "door.html"))); // staff-only scanner, not linked from the public site
 app.get("*", async (req, res, next) => {
   if (/\.[a-z0-9]{1,8}$/i.test(req.path)) return res.status(404).type("text").send("Not found"); // missing file, not an app route
   try {

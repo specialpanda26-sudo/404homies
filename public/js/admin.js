@@ -77,7 +77,8 @@ async function loadAudit(){
 // The buyer opens the site and uses "Find my ticket" with their phone number + order number.
 function waLink(r){
   if(r.status!=='PAID') return '';
-  const msg = 'Hi '+r.holder_name+', your ticket is ready \u{1F39F}\n\nOpen '+location.origin+' \u2192 tap "Already paid? Find my ticket" \u2192 enter your M-Pesa number ('+r.holder_phone+') and this order number: '+r.order_number+'\n\nYou can then download your QR ticket and show it at the door.';
+  const tap = r.link ? location.origin+'/?t='+encodeURIComponent(r.link) : location.origin;
+  const msg = 'Hi '+r.holder_name+', your ticket is ready \u{1F39F}\n\nTap to open it: '+tap+'\n\nThen download your QR ticket and show it at the door. If the link does not open, go to '+location.origin+' \u2192 "Already paid? Find my ticket" and use your M-Pesa number ('+r.holder_phone+') with order number '+r.order_number+'.';
   return '<a class="btn sm ghost" target="_blank" rel="noopener" href="https://wa.me/'+encodeURIComponent(r.holder_phone)+'?text='+encodeURIComponent(msg)+'">WhatsApp</a>';
 }
 async function searchOrders(){
