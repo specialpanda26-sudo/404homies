@@ -34,7 +34,7 @@
   }
 
   const S = {
-    cfg: {}, events: [], ev: null, tierId: null, qty: 1, promo: null,
+    cfg: {}, events: [], ev: null, tierId: null, qty: 1,
     ready: false, findMode: false, showFind: false, order: null, sig: '', tickets: [],
     poll: null, pollStart: 0, cdLeft: 0, cdTimer: null, clock: null,
   };
@@ -74,7 +74,7 @@
     if (n === 1) loadEvents().catch(() => {});
     window.scrollTo({ top: 0 });
   }
-  function invalidate() { S.promo = null; if ($('promoOk')) $('promoOk').textContent = ''; if (S.ready) { S.ready = false; updateTabs(); } }
+  function invalidate() { if (S.ready) { S.ready = false; updateTabs(); } }
 
   /* ───────── event, countdown, venue ───────── */
   async function loadEvents() {
@@ -147,7 +147,7 @@
     $('attInputs').innerHTML = Array.from({ length: S.qty }, (_, i) =>
       '<input class="attIn" maxlength="60" aria-label="Name on ticket ' + (i + 1) + '" placeholder="' + (i === 0 ? 'Ticket 1 \u2014 you (blank = your name)' : 'Ticket ' + (i + 1) + ' \u2014 name') + '" value="' + esc(old[i] || '') + '">').join('');
   }
-  function total() { const t = tier(); return t ? (S.promo ? S.promo.total : t.price * S.qty) : 0; }
+  function total() { const t = tier(); return t ? t.price * S.qty : 0; }
   function recalc() { $('tot').textContent = money(total()); $('payAmt').textContent = money(total()); }
   function pickTier(id) { S.tierId = String(id); invalidate(); renderTiers(); }
   function bump(d) { S.qty = Math.min(maxQty(), Math.max(1, S.qty + +d)); $('q').textContent = S.qty; invalidate(); clampQty(); recalc(); }
@@ -159,30 +159,12 @@
     else if (!$('agree').checked) err = "Please confirm you're 18+ and agree to the terms.";
     setErr('e1', err); if (err) return;
     const t = tier();
-    renderSum();
+    $('sum').innerHTML = '<b>' + esc(t.name) + ' \u00d7 ' + S.qty + '</b> \u2014 total <b>' + money(total()) + '</b> \u00b7 ' + esc(name);
     recalc(); S.ready = true; updateTabs(); go(2);
-    if ($('promo').value.trim() && !S.promo) applyPromo(true);
-  }
-  function renderSum() {
-    const t = tier(); if (!t) return;
-    $('sum').innerHTML = '<b>' + esc(t.name) + ' \u00d7 ' + S.qty + '</b> \u2014 total <b>' + money(total()) + '</b> \u00b7 ' + esc($('nm').value.trim());
-  }
-  async function applyPromo(silent) {
-    const code = $('promo').value.trim();
-    setErr('promoErr', ''); $('promoOk').textContent = '';
-    if (!code) { S.promo = null; recalc(); renderSum(); return; }
-    if (!tier()) return;
-    const b = $('promoBtn'); b.disabled = true;
-    try {
-      const d = await api('/api/promo/check', { method: 'POST', body: { ticketTypeId: S.tierId, quantity: S.qty, code } });
-      S.promo = { code: d.code, discount: d.discount, total: d.total };
-      $('promoOk').textContent = 'Code ' + d.code + ' applied. You save ' + money(d.discount) + '.';
-    } catch (e) { S.promo = null; if (!silent) setErr('promoErr', e.message); }
-    b.disabled = false; recalc(); renderSum();
   }
 
   /* ───────── step 2: payment ───────── */
-  const orderSig = () => [S.tierId, S.qty, $('nm').value.trim(), phone9($('mp').value), names().join('|'), $('promo').value.trim().toUpperCase()].join('~');
+  const orderSig = () => [S.tierId, S.qty, $('nm').value.trim(), phone9($('mp').value), names().join('|')].join('~');
 
   function term(text, cls) {
     const t = $('mpStat'); t.classList.add('on');
@@ -208,7 +190,7 @@
     try {
       if (!(S.order && S.sig === sig)) {
         const o = await api('/api/orders', { method: 'POST', body: {
-          name: $('nm').value.trim(), phone: raw, ticketTypeId: S.tierId, quantity: S.qty, attendees: names(), agreed: $('agree').checked, promoCode: $('promo').value.trim() } });
+          name: $('nm').value.trim(), phone: raw, ticketTypeId: S.tierId, quantity: S.qty, attendees: names(), agreed: $('agree').checked } });
         S.order = o; S.sig = sig;
         store.set('pp_order', { orderNumber: o.orderNumber, accessKey: o.accessKey, phone: o.phone, total: o.totalAmount, savedAt: Date.now() });
       } else reused = true;
@@ -510,7 +492,7 @@
 
   /* ───────── events wiring ───────── */
   const actions = {
-    noop() {}, go: (n) => go(+n), applyPromo: () => applyPromo(false), bump, tier: pickTier, toPay, pay, retry, restart, resend, changeNumber, checkNow: () => tick(),
+    noop() {}, go: (n) => go(+n), bump, tier: pickTier, toPay, pay, retry, restart, resend, changeNumber, checkNow: () => tick(),
     dlAll, ics, share, find, findOpen, findMore: () => { S.showFind = !S.showFind; renderTickets(); if (S.showFind) $('fPhone').focus(); }, again: () => { S.order = null; S.ready = false; updateTabs(); go(1); },
     terms: () => { $('terms').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
   };

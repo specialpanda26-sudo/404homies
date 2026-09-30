@@ -22,6 +22,22 @@ if (env.TICKET_SECRET.length < 24 || env.ADMIN_TOKEN.length < 16) {
   console.error("❌  TICKET_SECRET (24+ chars) and ADMIN_TOKEN (16+ chars) must be long random strings.");
   process.exit(1);
 }
+// Live payments: the webhook secret and staff code must exist, and be long.
+if (isProd) {
+  const need = ["WEBHOOK_SECRET", "STAFF_TOKEN"].filter((k) => !env[k]);
+  if (need.length) {
+    console.error("❌  " + need.join(" and ") + " must be set when NODE_ENV=production.");
+    process.exit(1);
+  }
+}
+if (env.WEBHOOK_SECRET && env.WEBHOOK_SECRET.length < 16) {
+  console.error("❌  WEBHOOK_SECRET must be at least 16 characters.");
+  process.exit(1);
+}
+if (env.STAFF_TOKEN && env.STAFF_TOKEN.length < 12) {
+  console.error("❌  STAFF_TOKEN must be at least 12 characters.");
+  process.exit(1);
+}
 
 module.exports = {
   isProd,
@@ -40,11 +56,14 @@ module.exports = {
   supportWhatsapp: (env.SUPPORT_WHATSAPP || "").replace(/\D/g, ""),
   supportPhone: env.SUPPORT_PHONE || "",
   groupLink: env.WHATSAPP_GROUP || "",
-  seedDemo: String(env.SEED_DEMO).toLowerCase() !== "false",
+  seedDemo: String(env.SEED_DEMO).toLowerCase() === "true", // off unless explicitly enabled
   // Business rules
   maxTicketsPerOrder: 4,
-  orderTtlMinutes: 15,       // how long an unpaid order holds stock
+  orderTtlMinutes: 10,       // how long an unpaid order holds stock
   stkCooldownSeconds: 45,    // minimum gap between STK prompts for one order
   maxStkPerOrder: 4,
+  maxStkPerPhonePerHour: 3,  // M-Pesa prompts to one number across ALL orders
+  maxOpenOrdersPerPhone: 2,  // unpaid orders holding stock, per phone
+  maxOpenOrdersPerIp: 6,     // per IP (generous: mobile networks share IPs)
   lowStockThreshold: 20,
 };

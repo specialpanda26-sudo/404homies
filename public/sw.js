@@ -1,10 +1,10 @@
 /* Minimal offline shell: cache the app skeleton so a saved ticket still opens with no signal.
  * Anything under /api/ always goes to the network — payments and tickets must never be served stale. */
-const CACHE = 'pp-v4';
-const SHELL = ['/', '/css/style.css', '/js/app.js', '/assets/logo.jpg', '/assets/bg.jpg', '/assets/place.jpg', '/manifest.webmanifest'];
+const CACHE = 'pp-v5';
+const SHELL = ['/', '/css/style.css', '/js/app.js', '/vendor/qrcode.min.js', '/assets/logo.jpg', '/assets/bg.jpg', '/assets/place.jpg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

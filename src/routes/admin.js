@@ -9,7 +9,7 @@ const U = require("../util");
 const router = express.Router();
 
 // Wrong-token attempts are limited hard; successful calls only face the general limiter.
-router.use(rateLimit({ windowMs: 60 * 1000, limit: 15, skipSuccessfulRequests: true, standardHeaders: true, legacyHeaders: false, message: { error: "Too many attempts." } }));
+router.use(rateLimit({ windowMs: 60 * 1000, limit: 15, skipSuccessfulRequests: true, requestWasSuccessful: (req, res) => res.statusCode !== 401, standardHeaders: true, legacyHeaders: false, message: { error: "Too many attempts." } }));
 router.use(rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests." } }));
 
 router.use((req, res, next) => {

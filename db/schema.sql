@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders(status, expires_at);
 CREATE INDEX IF NOT EXISTS orders_type_idx   ON orders(ticket_type_id, status);
 CREATE INDEX IF NOT EXISTS orders_phone_idx  ON orders(holder_phone);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_ip TEXT;
+CREATE INDEX IF NOT EXISTS orders_ip_idx     ON orders(created_ip, status);
 
 CREATE TABLE IF NOT EXISTS tickets (
   id            BIGSERIAL PRIMARY KEY,
@@ -106,6 +108,7 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
 CREATE UNIQUE INDEX IF NOT EXISTS payment_tx_txid_uniq
   ON payment_transactions(tinypesa_transaction_id) WHERE tinypesa_transaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS payment_tx_req_idx ON payment_transactions(order_id, tinypesa_request_id);
+CREATE INDEX IF NOT EXISTS payment_tx_phone_idx ON payment_transactions(phone, created_at);
 
 CREATE TABLE IF NOT EXISTS webhook_events (
   id           BIGSERIAL PRIMARY KEY,

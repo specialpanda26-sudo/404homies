@@ -49,17 +49,25 @@ async function loadTickets(orderId) {
 }
 
 /** Server-side price: quantity × unit price − promo. `db` is the pool or a tx client. */
-async function priceOrder(db, tt, quantity, rawCode) {
+async function priceOrder(db, tt, quantity, rawCode, lock = false) {
   const subtotal = tt.price * quantity;
   const code = String(rawCode || "").trim().toUpperCase().slice(0, 32);
   if (!code) return { subtotal, discount: 0, total: subtotal, promo: null };
 
-  const { rows } = await db.query("SELECT * FROM promo_codes WHERE code = $1", [code]);
+  const { rows } = await db.query("SELECT * FROM promo_codes WHERE code = $1" + (lock ? " FOR UPDATE" : ""), [code]);
   const p = rows[0];
   const bad = (m) => new U.HttpError(400, m);
   if (!p || !p.active) throw bad("That promo code isn't valid.");
   if (p.expires_at && new Date(p.expires_at) < new Date()) throw bad("That promo code has expired.");
-  if (p.max_uses != null && p.used_count >= p.max_uses) throw bad("That promo code has been fully used.");
+  if (p.max_uses != null) {
+    // Count unpaid orders that are still holding this code, so pending orders can't overuse it.
+    const held = await db.query(
+      `SELECT COUNT(*)::int AS c FROM orders
+        WHERE promo_code = $1 AND status IN ('PENDING','PAYMENT_PROCESSING') AND expires_at > now()`,
+      [p.code]
+    );
+    if (p.used_count + held.rows[0].c >= p.max_uses) throw bad("That promo code has been fully used.");
+  }
   if (p.event_id != null && String(p.event_id) !== String(tt.event_id)) throw bad("That promo code isn't valid for this event.");
 
   const discount = Math.min(subtotal, p.kind === "PERCENT" ? Math.floor((subtotal * Math.min(p.value, 100)) / 100) : p.value);
@@ -158,17 +166,28 @@ router.post("/orders", limit(40), U.wrap(async (req, res) => {
 
   const summary = await tx(async (c) => {
     const tt = await loadType(c, typeId, true); // row lock → concurrent buyers queue up here
+    const open = await c.query(
+      `SELECT COUNT(*) FILTER (WHERE holder_phone = $1)::int AS by_phone,
+              COUNT(*) FILTER (WHERE created_ip = $2)::int AS by_ip
+         FROM orders
+        WHERE status IN ('PENDING','PAYMENT_PROCESSING') AND expires_at > now()
+          AND (holder_phone = $1 OR created_ip = $2)`,
+      [phone, req.ip || null]
+    );
+    if (open.rows[0].by_phone >= cfg.maxOpenOrdersPerPhone || open.rows[0].by_ip >= cfg.maxOpenOrdersPerIp) {
+      throw new U.HttpError(429, "You already have unpaid orders waiting. Finish paying for them, or wait a few minutes for them to expire.");
+    }
     const remaining = await remainingStock(c, tt.id);
     if (remaining < quantity) {
       throw new U.HttpError(409, remaining > 0 ? `Only ${remaining} ${tt.name} ticket${remaining === 1 ? "" : "s"} left.` : `${tt.name} is sold out.`);
     }
-    const price = await priceOrder(c, tt, quantity, b.promoCode);
+    const price = await priceOrder(c, tt, quantity, b.promoCode, true);
     await c.query(
       `INSERT INTO orders (order_number, access_key_hash, holder_name, holder_email, holder_phone, event_id, ticket_type_id,
-                           quantity, unit_price, subtotal_amount, discount_amount, total_amount, promo_code, attendee_names, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+                           quantity, unit_price, subtotal_amount, discount_amount, total_amount, promo_code, attendee_names, expires_at, created_ip)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
       [orderNumber, U.sha256(accessKey), name, email, phone, tt.event_id, tt.id, quantity, tt.price,
-       price.subtotal, price.discount, price.total, price.promo, JSON.stringify(attendees), expiresAt]
+       price.subtotal, price.discount, price.total, price.promo, JSON.stringify(attendees), expiresAt, req.ip || null]
     );
     return { event: tt.event_name, ticketType: tt.name, unitPrice: tt.price, ...price };
   });
@@ -201,6 +220,16 @@ router.post("/payments/tinypesa/initiate", limit(40), U.wrap(async (req, res) =>
   if (!["PENDING", "FAILED", "PAYMENT_PROCESSING"].includes(order.status)) throw new U.HttpError(409, "This order can't be paid right now.");
   if (order.initiate_count >= cfg.maxStkPerOrder) {
     throw new U.HttpError(429, "Too many prompts for this order. If money left your M-Pesa, use 'Find my ticket'. Otherwise start a new order.");
+  }
+
+  // Per-phone cap across ALL orders, so nobody can spam prompts at one number by opening new orders.
+  const recent = await query(
+    `SELECT COUNT(*)::int AS c FROM payment_transactions
+      WHERE phone = $1 AND status = 'INITIATED' AND created_at > now() - interval '1 hour'`,
+    [order.holder_phone]
+  );
+  if (recent.rows[0].c >= cfg.maxStkPerPhonePerHour) {
+    throw new U.HttpError(429, "Too many M-Pesa prompts sent to this number. Try again in an hour. If you already paid, use 'Find my ticket'.");
   }
 
   // Atomic claim: blocks double-taps and enforces the resend cooldown in one statement.
