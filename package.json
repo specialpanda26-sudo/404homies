@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check src/config.js && node --check src/db.js && node --check src/util.js && node --check src/tinypesa.js && node --check src/payments.js && node --check src/jobs.js && node --check src/routes/public.js && node --check src/routes/webhook.js && node --check src/routes/staff.js && node --check src/routes/admin.js && node --check public/js/app.js && node --check public/js/admin.js && node --check public/js/door.js"
+    "check": "node --check server.js && node --check src/config.js && node --check src/db.js && node --check src/util.js && node --check src/tinypesa.js && node --check src/payments.js && node --check src/jobs.js && node --check src/routes/public.js && node --check src/routes/webhook.js && node --check src/routes/staff.js && node --check src/routes/admin.js && node --check scripts/vendor.js && node --check public/js/app.js && node --check public/js/admin.js && node --check public/js/door.js",
+    "postinstall": "node scripts/vendor.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

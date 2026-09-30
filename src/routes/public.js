@@ -361,7 +361,7 @@ router.post("/tickets/lookup", limit(20), U.wrap(async (req, res) => {
   const o = rows[0];
   if (!o) throw notFound;
   res.set("Cache-Control", "no-store");
-  res.json({ orderNumber: o.order_number, tickets: await loadTickets(o.id) });
+  res.json({ orderNumber: o.order_number, link: U.linkToken(o.order_number), tickets: await loadTickets(o.id) });
 }));
 
 // One-tap link sent from Admin → Orders → WhatsApp. The signed token proves the admin issued it.

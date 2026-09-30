@@ -489,6 +489,7 @@
     if (code.length < 6) { setErr('fErr', 'Enter the M-Pesa code from your SMS (e.g. SGH7K2L9QX) or your order number.'); b.disabled = false; return; }
     try {
       const d = await api('/api/tickets/lookup', { method: 'POST', body: { phone, code } });
+      if (d.link) { const links = store.get('pp_links') || {}; links[d.orderNumber] = d.link; store.set('pp_links', links); }
       mergeTickets(d.tickets); S.showFind = false; $('fCode').value = ''; renderTickets(); updateTabs(); toast('Ticket found.');
     } catch (e) { setErr('fErr', e.message); } finally { b.disabled = false; }
   }
