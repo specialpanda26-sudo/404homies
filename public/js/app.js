@@ -34,9 +34,9 @@
   }
 
   const S = {
-    cfg: {}, events: [], ev: null, tierId: null, qty: 1, promo: null,
+    pass: null, verifying: false, cfg: {}, events: [], ev: null, tierId: null, qty: 1, promo: null,
     ready: false, findMode: false, showFind: false, order: null, sig: '', tickets: [],
-    poll: null, pollStart: 0, cdLeft: 0, cdTimer: null, clock: null,
+    poll: null, pollStart: 0, cdLeft: 0, cdTimer: null, clock: null, tiersSig: '',
   };
   const tier = () => (S.ev ? S.ev.ticketTypes.find((t) => String(t.id) === String(S.tierId)) : null);
   const names = () => Array.from(document.querySelectorAll('.attIn')).map((i) => i.value.trim());
@@ -70,17 +70,24 @@
       return;
     }
     document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('on', p.id === 'p' + n));
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', +t.dataset.s === n));
+    document.querySelectorAll('.tab').forEach((t) => { const on = +t.dataset.s === n; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on)); });
     if (n === 1) loadEvents().catch(() => {});
     window.scrollTo({ top: 0 });
+    updateSticky();
   }
-  function invalidate() { S.promo = null; if ($('promoOk')) $('promoOk').textContent = ''; if (S.ready) { S.ready = false; updateTabs(); } }
+  function invalidate() {
+    S.promo = null; if ($('promoOk')) $('promoOk').textContent = '';
+    if (S.order && S.order.resumed) { S.order = null; S.sig = ''; store.del('pp_order'); } // form changed → a restored order no longer matches it
+    if (S.ready) { S.ready = false; updateTabs(); }
+  }
 
   /* ───────── event, countdown, venue ───────── */
   async function loadEvents() {
     S.events = await api('/api/events');
-    S.ev = S.events[0] || null;
-    renderHero(); renderTiers(); renderVenue();
+    // Show the next event that hasn't ended. An old event still marked ACTIVE can no longer hide a newer one.
+    const endsAt = (e) => startMs(e.event_date, e.event_time) + 8 * 3600 * 1000;
+    S.ev = S.events.find((e) => endsAt(e) > Date.now()) || S.events[S.events.length - 1] || null;
+    renderHero(); renderTiers(); renderVenue(); if (S.content) renderExtras();
   }
 
   function renderHero() {
@@ -121,17 +128,19 @@
   /* ───────── step 1 ───────── */
   function renderTiers() {
     const box = $('tiers');
-    if (!S.ev || !S.ev.ticketTypes.length) { box.innerHTML = '<div class="empty">No tickets on sale right now.</div>'; recalc(); return; }
+    if (!S.ev || !S.ev.ticketTypes.length) { box.innerHTML = '<div class="empty">No tickets on sale right now.</div>'; box.setAttribute('aria-busy', 'false'); S.tiersSig = ''; recalc(); renderStock(); updateSticky(); return; }
     const types = S.ev.ticketTypes;
     if (!types.some((t) => String(t.id) === String(S.tierId) && !t.soldOut)) { const f = types.find((t) => !t.soldOut); S.tierId = f ? String(f.id) : null; }
-    box.innerHTML = types.map((t) => {
+    const sig = JSON.stringify([S.tierId, types.map((t) => [t.id, t.name, t.description, t.price, t.remaining, t.soldOut, t.lowStock])]);
+    if (sig !== S.tiersSig) { S.tiersSig = sig; box.innerHTML = types.map((t) => {
       const on = String(t.id) === String(S.tierId);
       const badge = t.soldOut ? '<span class="badge out">Sold out</span>' : t.lowStock ? '<span class="badge low">' + t.remaining + ' left</span>' : '';
       return '<div class="tier' + (on ? ' on' : '') + (t.soldOut ? ' disabled' : '') + '" role="radio" aria-checked="' + on + '" tabindex="' + (t.soldOut ? -1 : 0) + '" data-act="' + (t.soldOut ? 'noop' : 'tier:' + t.id) + '">' +
         '<div><b>' + esc(t.name) + '</b>' + (t.description ? '<span>' + esc(t.description) + '</span>' : '') + badge + '</div>' +
         '<div class="p">' + money(t.price) + '</div></div>';
-    }).join('');
-    clampQty(); recalc();
+    }).join(''); }
+    box.setAttribute('aria-busy', 'false');
+    clampQty(); recalc(); renderStock(); updateSticky();
   }
 
   function maxQty() { const t = tier(); return Math.max(1, Math.min(S.cfg.maxTickets || 4, t ? t.remaining : 1)); }
@@ -142,8 +151,9 @@
     renderAttendees();
   }
   function renderAttendees() {
-    const old = names();
     show('att', S.qty > 1);
+    if ($('attInputs').children.length === S.qty) return;
+    const old = names();
     $('attInputs').innerHTML = Array.from({ length: S.qty }, (_, i) =>
       '<input class="attIn" maxlength="60" aria-label="Name on ticket ' + (i + 1) + '" placeholder="' + (i === 0 ? 'Ticket 1 \u2014 you (blank = your name)' : 'Ticket ' + (i + 1) + ' \u2014 name') + '" value="' + esc(old[i] || '') + '">').join('');
   }
@@ -152,13 +162,43 @@
   function pickTier(id) { S.tierId = String(id); invalidate(); renderTiers(); }
   function bump(d) { S.qty = Math.min(maxQty(), Math.max(1, S.qty + +d)); $('q').textContent = S.qty; invalidate(); clampQty(); recalc(); }
 
+  /* ───────── tap-to-verify box ───────── */
+  const passOk = () => !!(S.pass && S.pass.exp > Date.now() + 15000);
+  const needHuman = () => S.cfg.humanCheck !== false;
+  function humanUI(state, main, sub) {
+    const h = $('human'); h.hidden = !needHuman();
+    h.className = 'human' + (state ? ' ' + state : '');
+    const b = $('hBtn'); b.setAttribute('aria-checked', String(state === 'ok'));
+    $('hTxt').textContent = main || "Tap to verify you're human"; $('hSub').textContent = sub || 'Takes about 5 seconds';
+    if (state === 'busy') {
+      const bar = $('hBar'); bar.style.transition = 'none'; bar.style.width = '0'; void bar.offsetWidth;
+      bar.style.transition = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'none' : 'width 5s linear'; bar.style.width = '100%'; h.classList.add('busy');
+    }
+  }
+  function syncHuman() { if (passOk()) humanUI('ok', 'Verified', 'You can continue'); else if (!S.verifying) humanUI(''); }
+  async function human() {
+    if (S.verifying || passOk()) return;
+    S.verifying = true; setErr('e1', '');
+    let left = 5; humanUI('busy', 'Verifying\u2026', left + 's');
+    const tm = setInterval(() => { left = Math.max(0, left - 1); $('hSub').textContent = left + 's'; }, 1000);
+    try {
+      const c = await api('/api/verify/challenge');
+      await new Promise((r) => setTimeout(r, Math.max(5000, (c.minMs || 4000) + 1000)));
+      const r = await api('/api/verify/pass', { method: 'POST', body: { challenge: c.challenge } });
+      S.pass = { token: r.pass, exp: Date.now() + (r.expiresInMs || 1200000) }; store.set('pp_pass', S.pass);
+      S.verifying = false; syncHuman();
+    } catch (e) {
+      S.verifying = false; humanUI('bad', "Couldn't verify", 'Tap to try again');
+    } finally { clearInterval(tm); }
+  }
+
   function toPay() {
+    if (needHuman() && !passOk()) { setErr('e1', S.verifying ? 'Hold on, verifying\u2026' : 'Please tap the box to verify you\'re human.'); if (!S.verifying) { humanUI('bad', "Tap to verify you're human", 'Takes about 5 seconds'); $('hBtn').scrollIntoView({ block: 'center', behavior: 'smooth' }); } return; }
     const name = $('nm').value.trim(); let err = '';
     if (!tier()) err = 'Choose a ticket first.';
     else if (name.length < 2) err = 'Error 404: name not found. Please add your name.';
     else if (!$('agree').checked) err = "Please confirm you're 18+ and agree to the terms.";
     setErr('e1', err); if (err) return;
-    const t = tier();
     renderSum();
     recalc(); S.ready = true; updateTabs(); go(2);
     if ($('promo').value.trim() && !S.promo) applyPromo(true);
@@ -201,13 +241,14 @@
 
   async function pay() {
     const raw = $('mp').value;
-    if (!phoneOk(raw)) { setErr('e2', 'Error 404: valid phone number not found. Try 0712 345 678.'); return; }
+    const resumed = !!(S.order && S.order.resumed); // order restored after a page reload: the form fields are empty, the order is not
+    if (!resumed && !phoneOk(raw)) { setErr('e2', 'Error 404: valid phone number not found. Try 0712 345 678.'); return; }
     setErr('e2', ''); show('payRes', false);
     const btn = $('payBtn'); btn.disabled = true; btn.textContent = 'Creating order\u2026';
     const sig = orderSig(); let reused = false; $('mpStat').innerHTML = '';
     try {
-      if (!(S.order && S.sig === sig)) {
-        const o = await api('/api/orders', { method: 'POST', body: {
+      if (!(S.order && (resumed || S.sig === sig))) {
+        const o = await api('/api/orders', { method: 'POST', headers: { 'X-Verify': S.pass ? S.pass.token : '' }, body: {
           name: $('nm').value.trim(), phone: raw, ticketTypeId: S.tierId, quantity: S.qty, attendees: names(), agreed: $('agree').checked, promoCode: $('promo').value.trim() } });
         S.order = o; S.sig = sig;
         store.set('pp_order', { orderNumber: o.orderNumber, accessKey: o.accessKey, phone: o.phone, total: o.totalAmount, savedAt: Date.now() });
@@ -224,6 +265,7 @@
       startPolling();
     } catch (e) {
       if (e.status === 409 || e.status === 410 || e.status === 404) { S.order = null; S.sig = ''; store.del('pp_order'); }
+      if (e.status === 403) { S.pass = null; store.del('pp_pass'); syncHuman(); payBtnLabel(); go(1); setErr('e1', 'Please verify you\'re human again, then continue.'); return; }
       payBtnLabel(); setErr('e2', e.message);
     }
   }
@@ -306,7 +348,9 @@
   function restart() { S.order = null; S.sig = ''; store.del('pp_order'); view('idle'); payBtnLabel(); go(1); }
   function changeNumber() {
     stopPolling(); clearInterval(S.cdTimer); S.order = null; S.sig = ''; store.del('pp_order');
-    view('idle'); payBtnLabel(); $('mp').focus(); toast('Enter the new number and send a new prompt.');
+    view('idle'); payBtnLabel();
+    if (!$('nm').value.trim()) { S.ready = false; updateTabs(); go(1); toast('Enter your details again, then pay with the new number.'); return; }
+    $('mp').focus(); toast('Enter the new number and send a new prompt.');
   }
   async function resend() {
     if (!S.order) return;
@@ -365,6 +409,7 @@
     S.order = null; S.sig = ''; view('idle'); payBtnLabel();
     renderTickets(); updateTabs(); go(3);
     if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+    confetti();
   }
 
   /* ───────── step 3: tickets (real QR) ───────── */
@@ -489,10 +534,11 @@
     if (code.length < 6) { setErr('fErr', 'Enter the M-Pesa code from your SMS (e.g. SGH7K2L9QX) or your order number.'); b.disabled = false; return; }
     try {
       const d = await api('/api/tickets/lookup', { method: 'POST', body: { phone, code } });
+      if (d.link) { const links = store.get('pp_links') || {}; links[d.orderNumber] = d.link; store.set('pp_links', links); }
       mergeTickets(d.tickets); S.showFind = false; $('fCode').value = ''; renderTickets(); updateTabs(); toast('Ticket found.');
     } catch (e) { setErr('fErr', e.message); } finally { b.disabled = false; }
   }
-  function findOpen() { S.findMode = true; updateTabs(); go(3); }
+  function findOpen() { S.findMode = true; S.showFind = true; renderTickets(); updateTabs(); go(3); const f = $('fPhone'); if (f) f.focus(); }
 
   /* ───────── support button ───────── */
   function initSupport() {
@@ -508,10 +554,109 @@
     document.addEventListener('click', (e) => { if (!card.contains(e.target) && !b.contains(e.target)) set(false); });
   }
 
+  /* ───────── v2.4: stock bar, sticky bar, confetti, extra sections ───────── */
+  function renderStock() {
+    const el = $('stock'), types = S.ev ? S.ev.ticketTypes : [];
+    const total = types.reduce((a, t) => a + (t.total || 0), 0), left = types.reduce((a, t) => a + (t.remaining || 0), 0);
+    if (!total) { el.hidden = true; return; }
+    const sold = Math.max(0, total - left);
+    $('stockL').textContent = sold.toLocaleString('en-US') + ' sold';
+    $('stockR').textContent = left ? left.toLocaleString('en-US') + ' left' : 'Sold out';
+    $('stockBar').style.width = Math.min(100, Math.round((sold / total) * 100)) + '%';
+    el.hidden = false;
+  }
+
+  let btnVisible = true;
+  function updateSticky() {
+    const bar = $('sticky'), types = S.ev ? S.ev.ticketTypes.filter((t) => !t.soldOut) : [];
+    const on = !!types.length && $('p1').classList.contains('on') && !btnVisible && 'IntersectionObserver' in window;
+    if (types.length) $('stkP').textContent = money(Math.min.apply(null, types.map((t) => t.price)));
+    $('stkL').textContent = types.length > 1 ? 'From' : 'Price';
+    bar.hidden = !on; document.body.classList.toggle('hasbar', on);
+  }
+  function initSticky() {
+    if (!('IntersectionObserver' in window)) return;
+    const target = document.querySelector('#p1 [data-act="toPay"]');
+    new IntersectionObserver((en) => { btnVisible = en[0].isIntersecting; updateSticky(); }).observe(target);
+  }
+
+  function confetti() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const cv = document.createElement('canvas'), W = cv.width = innerWidth, H = cv.height = innerHeight, c = cv.getContext('2d');
+    cv.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none'; cv.setAttribute('aria-hidden', 'true'); document.body.appendChild(cv);
+    const cols = ['#e8c56a', '#f0d47e', '#c99a2e', '#fff4cf', '#a87b1d'];
+    const p = Array.from({ length: 40 }, () => ({ x: W / 2, y: H * 0.35, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 11 - 3, s: 5 + Math.random() * 6, r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.4, c: cols[(Math.random() * cols.length) | 0] }));
+    let f = 0;
+    (function step() {
+      c.clearRect(0, 0, W, H);
+      p.forEach((q) => { q.vy += 0.35; q.x += q.vx; q.y += q.vy; q.r += q.vr; c.save(); c.translate(q.x, q.y); c.rotate(q.r); c.fillStyle = q.c; c.globalAlpha = Math.max(0, 1 - f / 110); c.fillRect(-q.s / 2, -q.s / 4, q.s, q.s / 2); c.restore(); });
+      if (++f < 110) requestAnimationFrame(step); else cv.remove();
+    })();
+  }
+
+  async function initExtras() {
+    try { const r = await fetch('/content.json', { cache: 'no-store' }); if (r.ok) S.content = await r.json(); } catch (e) { /* sections stay hidden */ }
+    renderExtras();
+  }
+  function renderExtras() {
+    const C = S.content || {};
+    const arr = (v) => (Array.isArray(v) ? v : []);
+    const safeImg = (s) => /^\/assets\/[\w\-./]+$/.test(String(s || ''));
+    const gal = arr(C.gallery).filter((g) => g && safeImg(g.src)), incl = arr(C.included), line = arr(C.lineup);
+    $('gal').innerHTML = gal.map((g) => '<img loading="lazy" src="' + esc(g.src) + '" alt="' + esc(g.alt || '') + '">').join(''); $('gal').hidden = !gal.length;
+    $('incl').innerHTML = incl.map((t) => '<span>' + esc(t) + '</span>').join(''); $('incl').hidden = !incl.length;
+    $('line').innerHTML = line.map((d) => '<span>' + esc(d.name || d) + (d.role ? '<small>' + esc(d.role) + '</small>' : '') + '</span>').join(''); $('lineWrap').hidden = !line.length;
+    $('night').hidden = !(gal.length || incl.length || line.length);
+    initGalleryAuto();
+    const sch = arr(C.schedule).filter((s) => s && s.title);
+    $('sched').innerHTML = sch.map((s) => '<li>' + (s.time ? '<b>' + esc(s.time === '@start' ? (S.ev ? fmtTime(S.ev.event_time) : '') : s.time) + '</b>' : '') + '<span>' + esc(s.title) + '</span>' + (s.note ? '<small>' + esc(s.note) + '</small>' : '') + '</li>').join(''); $('schedWrap').hidden = !sch.length;
+    const faq = arr(C.faq).filter((f) => f && f.q && f.a);
+    $('faq').innerHTML = faq.map((f) => '<details><summary>' + esc(f.q) + '</summary><p>' + esc(f.a) + '</p></details>').join(''); $('faqWrap').hidden = !faq.length;
+    const so = C.socials || {}, links = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['whatsapp', 'WhatsApp Channel']].filter((x) => /^https:\/\//.test(so[x[0]] || ''));
+    $('soc').innerHTML = links.map((x) => '<a href="' + esc(so[x[0]]) + '" target="_blank" rel="noopener">' + x[1] + '</a>').join(''); $('soc').hidden = !links.length;
+  }
+
+  /* Gallery auto-slide: advances every 3.5 s, loops, pauses while touched/hovered, off-screen or tab hidden, and never runs for reduced-motion. */
+  function initGalleryAuto() {
+    const g = $('gal'); if (!g || g.dataset.auto) return; g.dataset.auto = '1';
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let hold = false, seen = true, resume = null;
+    const pause = () => { hold = true; clearTimeout(resume); };
+    const later = () => { clearTimeout(resume); resume = setTimeout(() => { hold = false; }, 4000); };
+    ['pointerdown', 'touchstart', 'mouseenter', 'focusin'].forEach((ev) => g.addEventListener(ev, pause, { passive: true }));
+    ['pointerup', 'touchend', 'mouseleave', 'focusout'].forEach((ev) => g.addEventListener(ev, later, { passive: true }));
+    if ('IntersectionObserver' in window) new IntersectionObserver((en) => { seen = en[0].isIntersecting; }).observe(g);
+    setInterval(() => {
+      const k = g.children; if (hold || !seen || document.hidden || g.hidden || k.length < 2) return;
+      const gl = g.getBoundingClientRect().left;
+      let cur = 0, best = 1e9;
+      for (let i = 0; i < k.length; i++) { const d = Math.abs(k[i].getBoundingClientRect().left - gl); if (d < best) { best = d; cur = i; } }
+      const nx = k[(cur + 1) % k.length];
+      g.scrollTo({ left: g.scrollLeft + nx.getBoundingClientRect().left - gl - 4, behavior: 'smooth' });
+    }, 3500);
+  }
+
+  function initAnalytics() {
+    if (!S.cfg.analyticsToken || navigator.doNotTrack === '1') return;
+    const s = document.createElement('script'); s.defer = true; s.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+    s.setAttribute('data-cf-beacon', JSON.stringify({ token: S.cfg.analyticsToken })); document.head.appendChild(s);
+  }
+
+  document.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('.btn, .qty button, .tab, .tier, .linkbtn, .soc a, .supcard a');
+    if (!b || b.disabled || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 1.6, s = document.createElement('span');
+    s.className = 'rip'; s.style.cssText = 'width:' + d + 'px;height:' + d + 'px;left:' + (e.clientX - r.left - d / 2) + 'px;top:' + (e.clientY - r.top - d / 2) + 'px';
+    if (getComputedStyle(b).position === 'static') b.style.position = 'relative';
+    b.appendChild(s); setTimeout(() => s.remove(), 600);
+  });
+
   /* ───────── events wiring ───────── */
   const actions = {
     noop() {}, go: (n) => go(+n), applyPromo: () => applyPromo(false), bump, tier: pickTier, toPay, pay, retry, restart, resend, changeNumber, checkNow: () => tick(),
-    dlAll, ics, share, find, findOpen, findMore: () => { S.showFind = !S.showFind; renderTickets(); if (S.showFind) $('fPhone').focus(); }, again: () => { S.order = null; S.ready = false; updateTabs(); go(1); },
+    dlAll, ics, share, find, findOpen, findMore: () => { S.showFind = !S.showFind; renderTickets(); if (S.showFind) $('fPhone').focus(); }, again: () => { S.order = null; S.sig = ''; S.promo = null; $('promo').value = ''; $('promoOk').textContent = ''; setErr('promoErr', ''); S.ready = false; updateTabs(); go(1); },
+    human,
+    stk: () => { $('p1').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     terms: () => { $('terms').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
   };
   document.addEventListener('click', (e) => {
@@ -538,7 +683,7 @@
     if (Date.now() - (so.savedAt || 0) > 30 * 60 * 1000) { store.del('pp_order'); return; }
     try {
       const d = await api('/api/orders/' + encodeURIComponent(so.orderNumber) + '/status', { headers: { 'X-Access-Key': so.accessKey } });
-      S.order = { orderNumber: so.orderNumber, accessKey: so.accessKey, totalAmount: d.totalAmount, phone: so.phone };
+      S.order = { orderNumber: so.orderNumber, accessKey: so.accessKey, totalAmount: d.totalAmount, phone: so.phone, resumed: true };
       const line = 'Order ' + so.orderNumber + ' \u2014 ' + money(d.totalAmount);
       if (d.status === 'PAID') finish(d.tickets || []);
       else if (d.status === 'PAYMENT_PROCESSING') { S.ready = true; updateTabs(); $('sum').textContent = line; showWaiting(so.phone, d.totalAmount, d.canResendIn); startPolling(); }
@@ -550,7 +695,9 @@
   async function boot() {
     $('offline').classList.toggle('on', !navigator.onLine);
     try { S.cfg = await api('/api/config'); } catch (e) { /* defaults apply */ }
-    initSupport();
+    syncHuman();
+    const sp = store.get('pp_pass'); if (sp && sp.token && sp.exp > Date.now()) S.pass = sp;
+    syncHuman(); initSupport(); initSticky(); initAnalytics(); initExtras();
     const saved = store.get('pp_tickets');
     if (saved && saved.tickets && saved.tickets.length) { S.tickets = saved.tickets; renderTickets(); }
     updateTabs(); view('idle');

@@ -144,7 +144,7 @@ async function createPromo(){
   err('promoErr','');
   const code=$('pcCode').value.trim().toUpperCase(), kind=$('pcKind').value, val=$('pcVal').value, maxU=$('pcMax').value, exp=$('pcExp').value, evId=$('pcEvent').value;
   try{
-    await api('/api/admin/promos',{method:'POST',body:{code,kind,value:+val,maxUses:maxU||undefined,expiresAt:exp||undefined,eventId:evId||undefined}});
+    await api('/api/admin/promos',{method:'POST',body:{code,kind,value:+val,maxUses:maxU||undefined,expiresAt:exp?(exp.length===16?exp+':00':exp)+'+03:00':undefined,eventId:evId||undefined}});
     $('pcCode').value=''; $('pcVal').value=''; $('pcMax').value=''; loadPromos();
   }catch(e){ err('promoErr',e.message); }
 }

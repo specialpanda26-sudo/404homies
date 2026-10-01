@@ -5,6 +5,19 @@ Stack: **Node.js + Express** (backend) · **Supabase Postgres** (database) · **
 
 ---
 
+## v2.4 — look-and-feel additions (all free, same gold theme)
+
+- **How it works**, **trust badges**, **FAQ accordion**, **skeleton loading**, **live "sold / left" bar**, **sticky "Get tickets" bar**, **gold shimmer** (off for reduced-motion), **confetti** on ticket issue, and a **Save to Photos** hint on the ticket screen.
+- **`public/content.json`** controls the extra sections: `faq`, `included` (e.g. "Free drinks"), `gallery` (images in `public/assets/gallery/`, referenced as `/assets/gallery/x.jpg`), `lineup`, `schedule` and `socials` (full https links). A section with no items stays hidden.
+- **Analytics (optional):** set `CF_ANALYTICS_TOKEN` (Cloudflare Web Analytics, free). Skipped for visitors with Do Not Track.
+- **Self-hosted fonts (optional):** run `npm run fonts` once on a machine with internet, then redeploy.
+
+## v2.5 — bot protection
+
+- **"Tap to verify you're human" box** above Continue to payment (gold theme, ~5 s animated check). The server issues a signed challenge, refuses it if less than 4 s passed, accepts each challenge once, and then gives a pass (20 min, max 12 orders). Creating an order without a valid pass returns 403. Saved tickets, Find my ticket and resuming a payment don't need it.
+- **Overall per-IP limit** of 300 requests/min on the public API, on top of the per-route limits. Staff, admin and the M-Pesa webhook are unaffected.
+- Turn the box off with `HUMAN_CHECK=off`. It slows bots down but is not as strong as Cloudflare Turnstile; the counters still reset on restart.
+
 ## v2.3 — free upgrades (no paid services)
 
 - **One-tap ticket link.** Admin → Orders → WhatsApp now sends a link like `https://your-site/?t=<token>` that opens the buyer's tickets directly (no "Find my ticket" typing). The token is signed with `TICKET_SECRET`; nothing extra is stored. If the link fails, the message still explains the manual way.
@@ -206,3 +219,17 @@ The ticket object shape:
   qr: "TICKET-AB12CD34.a1b2c3d4e5f6a1b2c3d4e5f6" // the exact string to encode in the QR
 }
 ```
+
+---
+
+## v2.4 — audit fixes (all free)
+
+- Site shows the next upcoming event, not the oldest one still marked ACTIVE.
+- Reload mid-payment then Try again / Resend now works (it used to say "valid phone number not found").
+- "Already paid? Find my ticket" opens even when tickets are saved on the phone.
+- The 60 s refresh no longer drops keyboard focus while typing.
+- New purchase no longer inherits the previous promo code.
+- Admin promo expiry is read as Kenya time (was 3 h off).
+- Door scanner: screen stays awake; typed code kept on failure; Admit-from-search no longer silently fails during a scan.
+- Icons / WhatsApp preview image fixed; maskable icons; accessibility roles; canonical URL; event name in HTML before JS runs.
+- Service worker no longer downloads the scanner library onto customers' phones.

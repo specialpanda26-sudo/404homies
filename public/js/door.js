@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const setErr = (id, m) => { const e = $(id); e.textContent = m || ''; e.style.display = m ? 'block' : 'none'; };
-  const S = { staff: '', stream: null, timer: null, cv: null, busy: false, lastCode: '', lastAt: 0, local: 0, audio: null, det: null };
+  const S = { staff: '', stream: null, timer: null, cv: null, busy: false, lastCode: '', lastAt: 0, local: 0, audio: null, det: null, wake: null };
 
   async function api(path, opts) {
     opts = opts || {};
@@ -38,17 +38,27 @@
   }
   function logout() { S.staff = ''; camOff(); try { sessionStorage.removeItem('pp_staff'); } catch (e) { /* ignore */ } showApp(false); }
 
+  /* Keep the screen awake while scanning, otherwise the phone sleeps mid-queue and the camera stops. */
+  async function lockScreen() {
+    try {
+      if (!navigator.wakeLock || S.wake) return;
+      S.wake = await navigator.wakeLock.request('screen');
+      S.wake.addEventListener('release', () => { S.wake = null; });
+    } catch (e) { /* not supported or refused: scanning still works */ }
+  }
+  function unlockScreen() { try { if (S.wake) S.wake.release(); } catch (e) { /* ignore */ } S.wake = null; }
+
   async function camOn() {
     if (S.stream) return; beep(1, 1);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('camHint').textContent = 'Camera unavailable \u2014 type the ticket code below'; return; }
     try {
       S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       const v = $('vid'); v.srcObject = S.stream; await v.play();
-      $('camHint').textContent = 'Point at the ticket QR code'; $('camBtn').textContent = 'Camera running'; loop();
+      $('camHint').textContent = 'Point at the ticket QR code'; $('camBtn').textContent = 'Camera running'; lockScreen(); loop();
     } catch (e) { S.stream = null; $('camHint').textContent = 'Camera blocked \u2014 allow it in browser settings, or type the code'; }
   }
   function camOff() {
-    clearTimeout(S.timer);
+    clearTimeout(S.timer); unlockScreen();
     if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; }
     const v = $('vid'); if (v) v.srcObject = null;
     $('camHint').textContent = 'Camera off \u2014 tap Start'; $('camBtn').textContent = 'Start camera';
@@ -85,8 +95,8 @@
   }
 
   async function onCode(code, force, forceAdmit) {
-    code = String(code).trim(); if (!code || S.busy) return;
-    if (!force && code === S.lastCode && Date.now() - S.lastAt < 3500) return;
+    code = String(code).trim(); if (!code || S.busy) return false;
+    if (!force && code === S.lastCode && Date.now() - S.lastAt < 3500) return false;
     S.lastCode = code; S.lastAt = Date.now(); S.busy = true;
     try {
       const admit = forceAdmit || $('admitMode').checked;
@@ -98,12 +108,14 @@
       else if (r.result === 'CANCELLED') { verdict('bad', 'CANCELLED', who); logScan(code, false, 'cancelled'); }
       else { verdict('bad', 'INVALID', r.reason || 'Not a valid ticket'); logScan(code, false, 'invalid'); }
       counts();
+      return true;
     } catch (e) {
       if (e.status === 401) { logout(); setErr('loginErr', 'Session ended \u2014 enter the staff code again.'); }
       else verdict('bad', e.network ? 'NO CONNECTION' : 'ERROR', e.message);
+      return false;
     } finally { setTimeout(() => { S.busy = false; }, 900); }
   }
-  function manual() { const v = $('man').value.trim().toUpperCase(); if (!v || S.busy) return; onCode(v, true); $('man').value = ''; }
+  function manual() { const v = $('man').value.trim().toUpperCase(); if (!v || S.busy) return; onCode(v, true).then((done) => { if (done) $('man').value = ''; }); }
 
   /* ── search by name / phone (for guests who lost their QR) ── */
   let srchTimer = null, srchSeq = 0;
@@ -127,15 +139,21 @@
   }
   $('srch').addEventListener('input', () => { clearTimeout(srchTimer); srchTimer = setTimeout(doSearch, 300); });
 
+  async function admitFromSearch(ticketNumber) {
+    for (let i = 0; i < 15 && S.busy; i++) await new Promise((r) => setTimeout(r, 150)); // a scan is still being processed
+    if (await onCode(ticketNumber, true, true)) { $('srch').value = ''; renderResults(null); }
+  }
+
   const actions = { login: () => login(), logout, camOn, camOff, manual };
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]'); if (!el) return;
     const a = el.getAttribute('data-act');
-    if (a.indexOf('admitTk:') === 0) { onCode(a.slice(8), true, true).then(() => { $('srch').value = ''; renderResults(null); }); return; }
+    if (a.indexOf('admitTk:') === 0) { admitFromSearch(a.slice(8)); return; }
     if (actions[a]) actions[a]();
   });
   document.addEventListener('keydown', (e) => { if (e.key !== 'Enter') return; if (e.target.id === 'tok') login(); if (e.target.id === 'man') manual(); });
   window.addEventListener('pagehide', camOff);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.stream) lockScreen(); }); // the browser drops the lock when the tab is hidden
 
   let saved = null; try { saved = sessionStorage.getItem('pp_staff'); } catch (e) { /* ignore */ }
   if (saved) login(saved);

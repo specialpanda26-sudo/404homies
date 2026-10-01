@@ -6,6 +6,7 @@ const { pool, query, tx, audit } = require("../db");
 const { sendStkPush } = require("../tinypesa");
 const { processVerifiedPayment, remainingStock } = require("../payments");
 const U = require("../util");
+const V = require("../verify");
 
 const router = express.Router();
 const limit = (n) =>
@@ -16,6 +17,8 @@ const limit = (n) =>
     legacyHeaders: false,
     message: { error: "Too many requests. Please wait a moment and try again." },
   });
+
+router.use(limit(300)); // overall per-IP ceiling for the public API, on top of the per-route limits below
 
 // ── helpers ────────────────────────────────────────────────────────────────
 async function findOrder(orderNumber, accessKey) {
@@ -105,6 +108,8 @@ router.get("/config", (req, res) => {
     maxTickets: cfg.maxTicketsPerOrder,
     stkCooldownSeconds: cfg.stkCooldownSeconds,
     mock: cfg.mock,
+    analyticsToken: cfg.analyticsToken || null,
+    humanCheck: cfg.humanCheck,
   });
 });
 
@@ -116,7 +121,7 @@ router.get("/events", limit(120), U.wrap(async (req, res) => {
   const ids = ev.rows.map((e) => e.id);
   const types = ids.length
     ? await query(
-        `SELECT tt.id, tt.event_id, tt.name, tt.description, tt.price,
+        `SELECT tt.id, tt.event_id, tt.name, tt.description, tt.price, tt.quantity_total::int AS total,
                 GREATEST(0, tt.quantity_total - tt.quantity_sold - COALESCE((
                   SELECT SUM(o.quantity) FROM orders o
                    WHERE o.ticket_type_id = tt.id AND o.status IN ('PENDING','PAYMENT_PROCESSING') AND o.expires_at > now()
@@ -145,7 +150,16 @@ router.post("/promo/check", limit(20), U.wrap(async (req, res) => {
   res.json({ code: p.promo, subtotal: p.subtotal, discount: p.discount, total: p.total });
 }));
 
-router.post("/orders", limit(40), U.wrap(async (req, res) => {
+router.get("/verify/challenge", limit(30), (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ challenge: V.challenge(), minMs: V.MIN_WAIT_MS });
+});
+router.post("/verify/pass", limit(20), U.wrap(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(V.redeem(req.body?.challenge));
+}));
+
+router.post("/orders", limit(40), V.requirePass, U.wrap(async (req, res) => {
   const b = req.body || {};
   const name = U.cleanName(b.name);
   const email = String(b.email || "").trim().toLowerCase().slice(0, 120);
@@ -361,7 +375,7 @@ router.post("/tickets/lookup", limit(20), U.wrap(async (req, res) => {
   const o = rows[0];
   if (!o) throw notFound;
   res.set("Cache-Control", "no-store");
-  res.json({ orderNumber: o.order_number, tickets: await loadTickets(o.id) });
+  res.json({ orderNumber: o.order_number, link: U.linkToken(o.order_number), tickets: await loadTickets(o.id) });
 }));
 
 // One-tap link sent from Admin → Orders → WhatsApp. The signed token proves the admin issued it.

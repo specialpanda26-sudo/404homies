@@ -6,6 +6,7 @@
 <title>%%TITLE%%</title>
 <meta name="description" content="%%DESC%%">
 <meta name="theme-color" content="#0a0908">
+<link rel="canonical" href="%%ORIGIN%%/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="404homies">
 <meta property="og:title" content="%%TITLE%%">
@@ -26,23 +27,29 @@
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+<noscript><div style="padding:24px;text-align:center;color:#f3ecd9;background:#0a0908">Please turn on JavaScript to buy tickets. Need help? Contact the organiser.</div></noscript>
 <div class="offline" id="offline" role="status">You're offline. Saved tickets still open; payments need a connection.</div>
 <div class="wrap">
-  <div class="logo"><img id="logoImg" src="/assets/logo.jpg" alt="404 Homies"></div>
+  <div class="logo"><span class="shine"><img id="logoImg" src="/assets/logo.jpg" alt="404 Homies"></span></div>
 
   <div class="hero glass" id="hero">
-    <h1>&nbsp;</h1>
+    <h1>%%NAME%%</h1>
   </div>
 
-  <div class="tabs" role="tablist">
-    <button class="tab on" data-s="1" data-act="go:1">1 &middot; Tickets</button>
-    <button class="tab" data-s="2" data-act="go:2" aria-disabled="true">2 &middot; Payment</button>
-    <button class="tab" data-s="3" data-act="go:3" aria-disabled="true">3 &middot; Your ticket</button>
+  <ul class="trust" aria-label="Why buy here">
+    <li>Secure M-Pesa</li><li>Instant ticket</li><li>18+ event</li>
+  </ul>
+
+  <div class="tabs" role="tablist" aria-label="Ticket steps">
+    <button class="tab on" role="tab" aria-selected="true" data-s="1" data-act="go:1">1 &middot; Tickets</button>
+    <button class="tab" role="tab" aria-selected="false" data-s="2" data-act="go:2" aria-disabled="true">2 &middot; Payment</button>
+    <button class="tab" role="tab" aria-selected="false" data-s="3" data-act="go:3" aria-disabled="true">3 &middot; Your ticket</button>
   </div>
 
   <!-- STEP 1 -->
-  <div class="panel glass on" id="p1">
-    <div id="tiers"><div class="empty">Loading tickets&hellip;</div></div>
+  <div class="panel glass on" id="p1" role="tabpanel">
+    <div class="stock" id="stock" hidden><div class="stock-t"><span id="stockL"></span><span id="stockR"></span></div><div class="bar"><i id="stockBar"></i></div></div>
+    <div id="tiers" role="radiogroup" aria-label="Ticket type" aria-busy="true"><div class="sk"></div><div class="sk"></div></div>
     <div class="qty"><button type="button" data-act="bump:-1" aria-label="Fewer tickets">&minus;</button><b id="q">1</b><button type="button" data-act="bump:1" aria-label="More tickets">+</button><span id="qHint" style="color:var(--mut);font-size:13px"></span></div>
     <div class="att" id="att" hidden>
       <label>Name on each ticket <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
@@ -53,6 +60,13 @@
       <div class="wa-t"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.300-2.900c-.2-.4.2-.4.7-1.300.1-.2 0-.3 0-.5l-.8-1.800c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.200c0 1.300.9 2.500 1 2.700.1.200 1.800 2.800 4.400 3.900 1.600.7 2.300.8 3.100.6.500-.1 1.500-.6 1.700-1.200.2-.6.2-1.100.1-1.200-.1-.1-.2-.1-.4-.2z"/></svg><div><b>Join the party WhatsApp group</b><span>Updates and party info are shared here. You'll get the join link right after payment.</span></div></div>
     </div>
     <label class="chk" for="agree"><input type="checkbox" id="agree"><span>I'm 18 or older and I agree to the <a href="#terms" data-act="terms">terms &amp; refund policy</a>.</span></label>
+    <div class="human" id="human">
+      <button type="button" class="hbox" id="hBtn" data-act="human" role="checkbox" aria-checked="false" aria-describedby="hTxt">
+        <span class="hchk" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+        <span class="htx"><b id="hTxt">Tap to verify you're human</b><small id="hSub">Takes about 5 seconds</small></span>
+      </button>
+      <div class="hbar" aria-hidden="true"><i id="hBar"></i></div>
+    </div>
     <div class="err" id="e1"></div>
     <div class="total"><span>Total</span><span id="tot">KES 0</span></div>
     <button class="btn" type="button" data-act="toPay">Continue to payment</button>
@@ -60,7 +74,7 @@
   </div>
 
   <!-- STEP 2 -->
-  <div class="panel glass" id="p2">
+  <div class="panel glass" id="p2" role="tabpanel">
     <div class="sum" id="sum"></div>
     <label for="promo">Promo code <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
     <div style="display:flex;gap:8px">
@@ -86,7 +100,7 @@
   </div>
 
   <!-- STEP 3 -->
-  <div class="panel glass" id="p3">
+  <div class="panel glass" id="p3" role="tabpanel">
     <div id="noT">
       <div class="empty" id="noTmsg" style="padding-bottom:6px">Error 404: ticket not found on this phone.<br>Paid already? Find it with the phone number you paid from.</div>
       <label for="fPhone">M-Pesa phone number</label>
@@ -102,6 +116,7 @@
         <a class="btn" id="grpLink" href="#" target="_blank" rel="noopener">Join WhatsApp group</a>
       </div>
       <div id="tkList"></div>
+      <p class="savehint"><b>Save it before you leave home.</b> Tap Download ticket, then choose Save to Photos (or Save Image) so your QR opens even with no signal.</p>
       <div class="btns2">
         <button class="btn ghost" type="button" data-act="ics">Add to calendar</button>
         <button class="btn ghost" type="button" data-act="share">Share with a friend</button>
@@ -115,6 +130,27 @@
     </div>
   </div>
 
+  <section class="sec glass" id="night" hidden>
+    <h2>The night</h2>
+    <div class="gal" id="gal" hidden></div>
+    <div class="chips" id="incl" hidden></div>
+    <div id="lineWrap" hidden><h3>Lineup</h3><div class="chips" id="line"></div></div>
+  </section>
+
+  <section class="sec glass" id="schedWrap" hidden>
+    <h2>Schedule</h2>
+    <ol class="tl" id="sched"></ol>
+  </section>
+
+  <section class="sec glass" aria-labelledby="hwT">
+    <h2 id="hwT">How it works</h2>
+    <ol class="how">
+      <li><b>Pick</b><span>Choose your ticket and enter your name.</span></li>
+      <li><b>Pay with M-Pesa</b><span>Approve the prompt on your phone.</span></li>
+      <li><b>Get your QR</b><span>Your ticket appears instantly. Show it at the door.</span></li>
+    </ol>
+  </section>
+
   <div class="venue glass">
     <iframe id="mapFrame" title="Map to the venue" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="about:blank"></iframe>
     <a class="place" id="placeLink" href="#" target="_blank" rel="noopener">
@@ -123,11 +159,20 @@
     </a>
   </div>
 
+  <section class="sec glass" id="faqWrap" hidden>
+    <h2>Questions</h2>
+    <div id="faq"></div>
+  </section>
+
+  <div class="soc" id="soc" hidden></div>
+
   <div class="foot" id="terms">
     <p><b>Terms &amp; refunds.</b> Guests must be 18+ and may be asked for ID at the door. Each ticket admits its holder once (a Couple ticket admits two people together). Tickets are non-refundable unless the event is cancelled or moved. If you were charged but got no ticket, use &ldquo;Find my ticket&rdquo; or contact support.</p>
     <p>&copy; 404homies</p>
   </div>
 </div>
+
+<div class="sticky" id="sticky" hidden><div><small id="stkL">From</small><b id="stkP"></b></div><button type="button" class="btn" data-act="stk">Get tickets</button></div>
 
 <button class="sup" id="supBtn" aria-label="Get support" aria-expanded="false" aria-controls="supCard"><img src="/assets/support.png" alt=""></button>
 <div class="supcard" id="supCard" role="dialog" aria-label="Support">

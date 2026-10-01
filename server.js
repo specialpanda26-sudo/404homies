@@ -23,14 +23,14 @@ app.use(
       useDefaults: true,
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"], // QR libraries are self-hosted in /vendor
+        scriptSrc: ["'self'"].concat(cfg.analyticsToken ? ["https://static.cloudflareinsights.com"] : []), // QR libraries are self-hosted in /vendor
         scriptSrcAttr: ["'none'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         frameSrc: ["https://maps.google.com", "https://www.google.com"], // venue map embed
         imgSrc: ["'self'", "data:", "blob:"],
         mediaSrc: ["'self'", "blob:"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'"].concat(cfg.analyticsToken ? ["https://cloudflareinsights.com"] : []),
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
         objectSrc: ["'none'"],
@@ -74,9 +74,11 @@ async function renderIndex(req) {
   if (Date.now() - evCache.at > 60000) {
     try {
       const { rows } = await db.query(
-        "SELECT name, description, venue, event_date::text AS d, event_time AS t FROM events WHERE status = 'ACTIVE' ORDER BY event_date, id LIMIT 1"
+        "SELECT name, description, venue, event_date::text AS d, event_time AS t FROM events WHERE status = 'ACTIVE' ORDER BY event_date, id"
       );
-      evCache = { at: Date.now(), ev: rows[0] || null };
+      // Same rule as the browser: the next event that hasn't ended (Kenya time, 8 h grace); else the most recent one.
+      const endsAt = (e) => new Date(`${e.d}T${e.t}:00+03:00`).getTime() + 8 * 3600 * 1000;
+      evCache = { at: Date.now(), ev: rows.find((e) => endsAt(e) > Date.now()) || rows[rows.length - 1] || null };
     } catch { evCache.at = Date.now(); }
   }
   const ev = evCache.ev;
@@ -90,8 +92,8 @@ async function renderIndex(req) {
     const time = `${hh % 12 || 12}${mm ? ":" + String(mm).padStart(2, "0") : ""} ${hh >= 12 ? "PM" : "AM"}`;
     desc = `${day} · ${time} · ${ev.venue}. Pay with M-Pesa, get your QR ticket instantly.`;
   }
-  const o = esc(origin), t = esc(title), d = esc(desc); // function replacers: a '$&' or '$$' in an event name must stay literal
-  return INDEX_HTML.replace(/%%ORIGIN%%/g, () => o).replace(/%%TITLE%%/g, () => t).replace(/%%DESC%%/g, () => d);
+  const o = esc(origin), t = esc(title), d = esc(desc), n = esc(ev ? ev.name : "Tickets"); // function replacers: a '$&' or '$$' in an event name must stay literal
+  return INDEX_HTML.replace(/%%ORIGIN%%/g, () => o).replace(/%%TITLE%%/g, () => t).replace(/%%DESC%%/g, () => d).replace(/%%NAME%%/g, () => n);
 }
 
 app.use(
@@ -100,7 +102,7 @@ app.use(
     maxAge: "1h",
     setHeaders(res, file) {
       // JS/CSS revalidate on every load (cheap ETag check) so a deploy never leaves phones running old code against a new API.
-      if (/\.(html|webmanifest|js|css)$/.test(file)) res.setHeader("Cache-Control", "no-cache");
+      if (/\.(html|webmanifest|js|css|json)$/.test(file)) res.setHeader("Cache-Control", "no-cache");
       if (/(admin|door)\.html$/.test(file)) res.setHeader("X-Robots-Tag", "noindex, nofollow");
     },
   })

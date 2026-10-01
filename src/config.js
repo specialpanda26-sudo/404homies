@@ -56,6 +56,8 @@ module.exports = {
   supportWhatsapp: (env.SUPPORT_WHATSAPP || "").replace(/\D/g, ""),
   supportPhone: env.SUPPORT_PHONE || "",
   groupLink: env.WHATSAPP_GROUP || "",
+  humanCheck: (env.HUMAN_CHECK || "on").toLowerCase() !== "off", // "tap to verify" box before ordering
+  analyticsToken: (env.CF_ANALYTICS_TOKEN || "").trim(), // optional free Cloudflare Web Analytics
   seedDemo: String(env.SEED_DEMO).toLowerCase() === "true", // off unless explicitly enabled
   // Business rules
   maxTicketsPerOrder: 4,

@@ -1,0 +1,50 @@
+{
+ "_help": "Edit to change the extra sections. A section with no items stays hidden. Gallery photos go in public/assets/gallery/ and are listed like {\"src\":\"/assets/gallery/pool.jpg\",\"alt\":\"The pool\"}. A schedule time of \"@start\" uses the event's start time.",
+ "included": [
+  "Free drinks",
+  "Pool access",
+  "Instant QR ticket",
+  "18+ crowd"
+ ],
+ "gallery": [],
+ "lineup": [],
+ "schedule": [
+  {
+   "time": "@start",
+   "title": "Doors open",
+   "note": "Have your QR ticket and ID ready."
+  },
+  {
+   "time": "Late",
+   "title": "Party runs till late",
+   "note": ""
+  }
+ ],
+ "socials": {
+  "instagram": "",
+  "tiktok": "",
+  "whatsapp": "https://whatsapp.com/channel/0029Vb9Fa9eIiRp0EE0Ces2A"
+ },
+ "faq": [
+  {
+   "q": "Who can come?",
+   "a": "Guests must be 18 or older and may be asked for ID at the door."
+  },
+  {
+   "q": "How do I get in?",
+   "a": "Show your QR ticket at the door, on your phone or as a saved image. Each ticket admits its holder once. A Couple ticket admits two people together."
+  },
+  {
+   "q": "I paid but I can't see my ticket.",
+   "a": "Tap Find my ticket and enter the phone number you paid from plus your M-Pesa code or order number. Still stuck? Use the help button and we'll sort it out."
+  },
+  {
+   "q": "Can I get a refund?",
+   "a": "Tickets are non-refundable unless the event is cancelled or moved."
+  },
+  {
+   "q": "I lost my phone or my QR.",
+   "a": "Use Find my ticket on any phone with the number you paid from. Staff can also look you up at the door by name or phone number."
+  }
+ ]
+}
