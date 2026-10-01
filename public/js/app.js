@@ -128,19 +128,20 @@
   /* ───────── step 1 ───────── */
   function renderTiers() {
     const box = $('tiers');
-    if (!S.ev || !S.ev.ticketTypes.length) { box.innerHTML = '<div class="empty">No tickets on sale right now.</div>'; box.setAttribute('aria-busy', 'false'); S.tiersSig = ''; recalc(); renderStock(); updateSticky(); return; }
+    if (!S.ev || !S.ev.ticketTypes.length) { box.innerHTML = '<div class="empty">No tickets on sale right now.</div>'; box.setAttribute('aria-busy', 'false'); S.tiersSig = ''; recalc(); updateSticky(); return; }
     const types = S.ev.ticketTypes;
     if (!types.some((t) => String(t.id) === String(S.tierId) && !t.soldOut)) { const f = types.find((t) => !t.soldOut); S.tierId = f ? String(f.id) : null; }
-    const sig = JSON.stringify([S.tierId, types.map((t) => [t.id, t.name, t.description, t.price, t.remaining, t.soldOut, t.lowStock])]);
+    const sig = JSON.stringify([S.tierId, types.map((t) => [t.id, t.name, t.description, t.price, t.remaining, t.soldOut, t.lowStock, t.requiresPool])]);
     if (sig !== S.tiersSig) { S.tiersSig = sig; box.innerHTML = types.map((t) => {
       const on = String(t.id) === String(S.tierId);
       const badge = t.soldOut ? '<span class="badge out">Sold out</span>' : t.lowStock ? '<span class="badge low">' + t.remaining + ' left</span>' : '';
+      const lock = t.requiresPool ? '<span class="badge req">Pool party ticket holders only</span> ' : '';
       return '<div class="tier' + (on ? ' on' : '') + (t.soldOut ? ' disabled' : '') + '" role="radio" aria-checked="' + on + '" tabindex="' + (t.soldOut ? -1 : 0) + '" data-act="' + (t.soldOut ? 'noop' : 'tier:' + t.id) + '">' +
-        '<div><b>' + esc(t.name) + '</b>' + (t.description ? '<span>' + esc(t.description) + '</span>' : '') + badge + '</div>' +
+        '<div><b>' + esc(t.name) + '</b>' + (t.description ? '<span>' + esc(t.description) + '</span>' : '') + lock + badge + '</div>' +
         '<div class="p">' + money(t.price) + '</div></div>';
     }).join(''); }
     box.setAttribute('aria-busy', 'false');
-    clampQty(); recalc(); renderStock(); updateSticky();
+    clampQty(); recalc(); updateSticky();
   }
 
   function maxQty() { const t = tier(); return Math.max(1, Math.min(S.cfg.maxTickets || 4, t ? t.remaining : 1)); }
@@ -555,17 +556,6 @@
   }
 
   /* ───────── v2.4: stock bar, sticky bar, confetti, extra sections ───────── */
-  function renderStock() {
-    const el = $('stock'), types = S.ev ? S.ev.ticketTypes : [];
-    const total = types.reduce((a, t) => a + (t.total || 0), 0), left = types.reduce((a, t) => a + (t.remaining || 0), 0);
-    if (!total) { el.hidden = true; return; }
-    const sold = Math.max(0, total - left);
-    $('stockL').textContent = sold.toLocaleString('en-US') + ' sold';
-    $('stockR').textContent = left ? left.toLocaleString('en-US') + ' left' : 'Sold out';
-    $('stockBar').style.width = Math.min(100, Math.round((sold / total) * 100)) + '%';
-    el.hidden = false;
-  }
-
   let btnVisible = true;
   function updateSticky() {
     const bar = $('sticky'), types = S.ev ? S.ev.ticketTypes.filter((t) => !t.soldOut) : [];
@@ -596,12 +586,15 @@
 
   async function initExtras() {
     try { const r = await fetch('/content.json', { cache: 'no-store' }); if (r.ok) S.content = await r.json(); } catch (e) { /* sections stay hidden */ }
+    S.content = S.content || {};
+    // Photos uploaded in the admin panel come first; any listed in content.json follow.
+    try { const up = await api('/api/gallery'); if (up.length) S.content.gallery = up.concat(Array.isArray(S.content.gallery) ? S.content.gallery : []); } catch (e) { /* ignore */ }
     renderExtras();
   }
   function renderExtras() {
     const C = S.content || {};
     const arr = (v) => (Array.isArray(v) ? v : []);
-    const safeImg = (s) => /^\/assets\/[\w\-./]+$/.test(String(s || ''));
+    const safeImg = (s) => /^\/(assets\/[\w\-./]+|api\/gallery\/\d+\/img)$/.test(String(s || ''));
     const gal = arr(C.gallery).filter((g) => g && safeImg(g.src)), incl = arr(C.included), line = arr(C.lineup);
     $('gal').innerHTML = gal.map((g) => '<img loading="lazy" src="' + esc(g.src) + '" alt="' + esc(g.alt || '') + '">').join(''); $('gal').hidden = !gal.length;
     $('incl').innerHTML = incl.map((t) => '<span>' + esc(t) + '</span>').join(''); $('incl').hidden = !incl.length;
@@ -616,23 +609,29 @@
     $('soc').innerHTML = links.map((x) => '<a href="' + esc(so[x[0]]) + '" target="_blank" rel="noopener">' + x[1] + '</a>').join(''); $('soc').hidden = !links.length;
   }
 
-  /* Gallery auto-slide: advances every 3.5 s, loops, pauses while touched/hovered, off-screen or tab hidden, and never runs for reduced-motion. */
+  /* Gallery auto-slide: every 3.5 s it glides to the next photo (left to right through the set), loops back to the first,
+   * pauses while someone is touching/dragging it, while it is off-screen or the tab is hidden, and never runs for reduced-motion. */
   function initGalleryAuto() {
     const g = $('gal'); if (!g || g.dataset.auto) return; g.dataset.auto = '1';
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     let hold = false, seen = true, resume = null;
     const pause = () => { hold = true; clearTimeout(resume); };
     const later = () => { clearTimeout(resume); resume = setTimeout(() => { hold = false; }, 4000); };
-    ['pointerdown', 'touchstart', 'mouseenter', 'focusin'].forEach((ev) => g.addEventListener(ev, pause, { passive: true }));
-    ['pointerup', 'touchend', 'mouseleave', 'focusout'].forEach((ev) => g.addEventListener(ev, later, { passive: true }));
+    // Touch only: mouse hover is handled separately so a phone's emulated "mouseenter" can't freeze the slider for good.
+    g.addEventListener('pointerdown', pause, { passive: true });
+    ['pointerup', 'pointercancel'].forEach((ev) => g.addEventListener(ev, later, { passive: true }));
+    g.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') pause(); }, { passive: true });
+    g.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') later(); }, { passive: true });
     if ('IntersectionObserver' in window) new IntersectionObserver((en) => { seen = en[0].isIntersecting; }).observe(g);
+    let idx = 0;
     setInterval(() => {
       const k = g.children; if (hold || !seen || document.hidden || g.hidden || k.length < 2) return;
       const gl = g.getBoundingClientRect().left;
-      let cur = 0, best = 1e9;
+      let cur = 0, best = 1e9; // re-sync with wherever the visitor swiped to
       for (let i = 0; i < k.length; i++) { const d = Math.abs(k[i].getBoundingClientRect().left - gl); if (d < best) { best = d; cur = i; } }
-      const nx = k[(cur + 1) % k.length];
-      g.scrollTo({ left: g.scrollLeft + nx.getBoundingClientRect().left - gl - 4, behavior: 'smooth' });
+      idx = (cur + 1) % k.length;
+      const nx = k[idx];
+      g.scrollTo({ left: idx === 0 ? 0 : g.scrollLeft + nx.getBoundingClientRect().left - gl - 4, behavior: 'smooth' });
     }, 3500);
   }
 

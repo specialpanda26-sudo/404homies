@@ -40,6 +40,7 @@ document.querySelectorAll('.navbtn').forEach(btn => btn.addEventListener('click'
   if(btn.dataset.tab==='review') loadReview();
   if(btn.dataset.tab==='promos') loadPromos();
   if(btn.dataset.tab==='events') loadEvents();
+  if(btn.dataset.tab==='photos') loadPhotos();
 }));
 
 // ── stats ──
@@ -70,6 +71,35 @@ async function loadAudit(){
     const rows = await api('/api/admin/audit?limit=50');
     $('auditTbl').querySelector('tbody').innerHTML = rows.map(r=>'<tr><td>'+dt(r.created_at)+'</td><td class="mono">'+esc(r.action)+'</td><td>'+esc(r.resource_type||'')+'</td><td class="mono">'+esc(r.resource_id||'')+'</td></tr>').join('') || '<tr><td colspan="4" class="empty">No actions yet.</td></tr>';
   }catch(e){}
+}
+
+
+// ── live dashboard (refreshes every 10 s while the page is open) ──
+const ago = s => { if(!s) return '—'; const m=Math.max(0,Math.round((Date.now()-new Date(s).getTime())/60000)); return m<1?'just now':m<60?m+' min ago':m<1440?Math.floor(m/60)+' h ago':Math.floor(m/1440)+' d ago'; };
+async function loadLive(){
+  try{
+    const d = await api('/api/admin/live');
+    const s=d.sales, door=d.door;
+    const tile=(l,v,sub,cls)=>'<div class="stat '+(cls||'')+'"><div class="lbl">'+l+'</div><div class="val">'+v+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>';
+    const tiers = d.tiers.map(t=>{ const pct=t.quantity_total?Math.min(100,Math.round(t.quantity_sold/t.quantity_total*100)):0;
+      return '<div class="lrow"><div class="t"><b>'+esc(t.name)+(t.requires_pool?' <span class="tag review">pool holders only</span>':'')+'</b><span>'+t.quantity_sold+' / '+t.quantity_total+'</span></div>'
+        +'<div class="bar2"><i style="width:'+pct+'%"></i></div><div class="m">'+fmt(t.revenue)+' · '+Math.max(0,t.quantity_total-t.quantity_sold)+' left'+(t.status!=='ACTIVE'?' · '+esc(t.status):'')+'</div></div>'; }).join('') || '<div class="empty">No tickets yet.</div>';
+    const promos = d.promos.map(p=>{ const exp=p.expires_at&&new Date(p.expires_at)<new Date(); const state=!p.active?'disabled':exp?'expired':'active';
+      return '<div class="lrow"><div class="t"><b>'+esc(p.code)+'</b><span>'+(p.kind==='PERCENT'?p.value+'% off':'KES '+p.value+' off')+'</span></div>'
+        +'<div class="m">'+p.paid_orders+(p.max_uses?' / '+p.max_uses:'')+' orders · '+p.tickets+' tickets · saved customers '+fmt(p.discount_given)+' · brought in '+fmt(p.revenue)+' · '+state+'</div></div>'; }).join('') || '<div class="empty">No promo codes yet.</div>';
+    const recent = d.recent.map(r=>'<div class="lrow"><div class="t"><b>'+esc(r.holder_name)+'</b><span>'+fmt(r.total_amount)+'</span></div>'
+        +'<div class="m">'+esc(r.type_name)+' × '+r.quantity+(r.promo_code?' · code '+esc(r.promo_code):'')+' · '+ago(r.paid_at)+'</div></div>').join('') || '<div class="empty">No sales yet.</div>';
+    $('liveBody').innerHTML =
+      '<div class="lgrid">'
+      +tile('Last hour',s.tickets_1h+' tickets',fmt(s.revenue_1h),s.tickets_1h?'good':'')
+      +tile('Today',s.tickets_today+' tickets',fmt(s.revenue_today),s.tickets_today?'good':'')
+      +tile('All time',fmt(s.revenue_all),s.tickets_all+' tickets sold','good')
+      +tile('Paying right now',s.pending_now,s.pending_now?fmt(s.pending_amount)+' waiting':'nobody',s.pending_now?'warn':'')
+      +tile('Checked in',door.used+' / '+door.total,'at the door')
+      +'</div>'
+      +'<div class="lcols"><div><h4>Tickets</h4>'+tiers+'</div><div><h4>Promo codes</h4>'+promos+'</div><div><h4>Latest sales</h4>'+recent+'</div></div>';
+    $('liveAt').textContent = 'updated '+new Date().toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  }catch(e){ $('liveAt').textContent='offline: '+e.message; }
 }
 
 // ── orders ──
@@ -186,16 +216,54 @@ async function loadEvents(){
       +'<div class="row">'+f('ev'+e.id,'Venue',e.venue,'maxlength="160"')+f('edt'+e.id,'Date',e.event_date,'type="date"')+f('etm'+e.id,'Start time',e.event_time,'type="time"')+'</div>'
       +'<div class="err" id="eErr'+e.id+'"></div><div class="ok" id="eOk'+e.id+'" hidden></div>'
       +'<button class="btn sm" style="margin-top:10px" data-act="saveEvent:'+e.id+'">Save event details</button>'
+      +'<h3 style="margin:18px 0 6px;font-size:12px">Ticket order <small>drag &#10303; to rearrange. The top one shows first on the site</small></h3>'
+      +'<div class="ord" data-event="'+e.id+'">'+e.ticketTypes.map(t=>'<div class="ord-i" data-tid="'+t.id+'"><span class="grip" aria-label="Drag to reorder">&#10303;</span><span class="nm">'+esc(t.name)+'</span><span class="pr">KES '+Number(t.price).toLocaleString()+(t.status!=='ACTIVE'?' · hidden':'')+'</span></div>').join('')+'</div>'
+      +'<div class="ok" id="oOk'+e.id+'" hidden></div><div class="err" id="oErr'+e.id+'"></div>'
       +'<h3 style="margin:18px 0 6px;font-size:12px">Tickets &amp; prices <small>new price applies to new orders; unpaid orders keep the price they started with</small></h3>'
       +(e.ticketTypes.length?e.ticketTypes.map(t=>'<div class="tier-row" style="display:block;margin-bottom:8px">'
         +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b>'+esc(t.name)+'</b><span class="meta">'+t.quantity_sold+' sold · '+esc(t.status)+' · ID '+t.id+'</span></div>'
         +'<div class="row">'+f('tn'+t.id,'Name',t.name,'maxlength="80"')+f('td'+t.id,'Description',t.description||'','maxlength="160"')+'</div>'
         +'<div class="row">'+f('tp'+t.id,'Price (KES)',t.price,'type="number" min="1"')+f('tq'+t.id,'Total tickets',t.quantity_total,'type="number" min="'+t.quantity_sold+'"')+'</div>'
+        +'<label class="toggle"><input type="checkbox" id="tr'+t.id+'"'+(t.requires_pool?' checked':'')+'> Only people who bought a pool party ticket can buy this (after party)</label>'
         +'<div class="err" id="tErr'+t.id+'"></div><div class="ok" id="tOk'+t.id+'" hidden></div>'
         +'<div class="actions" style="margin-top:10px"><button class="btn sm" data-act="saveType:'+t.id+'">Save ticket</button>'
         +'<button class="btn sm ghost" data-act="toggleType:'+t.id+':'+(t.status==='ACTIVE'?'HIDDEN':'ACTIVE')+'">'+(t.status==='ACTIVE'?'Hide':'Show')+'</button></div></div>').join(''):'<div class="empty">No ticket types yet.</div>')
       +'</div>').join('') || '<div class="empty">No events.</div>';
+    document.querySelectorAll('.ord[data-event]').forEach(box=>initSort(box, async ids=>{
+      const id=box.dataset.event; err('oErr'+id,''); $('oOk'+id).hidden=true;
+      try{ await api('/api/admin/ticket-types/reorder',{method:'POST',body:{ids}}); ok('oOk'+id,'Order saved. The site shows it on the next refresh.'); }
+      catch(e){ err('oErr'+id,e.message); loadEvents(); }
+    }));
   }catch(e){}
+}
+
+// Drag-to-reorder that works with a finger or a mouse. The dragged row follows the pointer; the gold line shows where it will land.
+function initSort(box, save){
+  let d=null;
+  const clear=()=>box.querySelectorAll('.ord-i').forEach(x=>x.classList.remove('before','after'));
+  box.addEventListener('pointerdown',e=>{
+    const g=e.target.closest('.grip'); if(!g) return; e.preventDefault();
+    d={item:g.closest('.ord-i'),y0:e.pageY,target:null,moved:false};
+    d.item.classList.add('drag');
+    try{ g.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  box.addEventListener('pointermove',e=>{
+    if(!d) return; d.moved=true;
+    d.item.style.transform='translateY('+(e.pageY-d.y0)+'px)';
+    if(e.clientY<90) window.scrollBy(0,-10); else if(e.clientY>window.innerHeight-90) window.scrollBy(0,10);
+    clear(); d.target=null;
+    const others=[...box.querySelectorAll('.ord-i')].filter(x=>x!==d.item);
+    for(const it of others){ const r=it.getBoundingClientRect(); if(e.clientY<r.top+r.height/2){ d.target=it; it.classList.add('before'); return; } }
+    if(others.length) others[others.length-1].classList.add('after');
+  });
+  const end=async()=>{
+    if(!d) return; const {item,target,moved}=d; d=null;
+    item.classList.remove('drag'); item.style.transform=''; clear();
+    if(!moved) return;
+    if(target) box.insertBefore(item,target); else box.appendChild(item);
+    await save([...box.querySelectorAll('.ord-i')].map(x=>+x.dataset.tid));
+  };
+  box.addEventListener('pointerup',end); box.addEventListener('pointercancel',end);
 }
 async function saveEvent(id){
   err('eErr'+id,''); $('eOk'+id).hidden=true;
@@ -207,12 +275,58 @@ async function saveEvent(id){
 async function saveType(id){
   err('tErr'+id,''); $('tOk'+id).hidden=true;
   try{
-    await api('/api/admin/ticket-types/'+id+'/update',{method:'POST',body:{name:$('tn'+id).value,description:$('td'+id).value,price:+$('tp'+id).value,quantityTotal:+$('tq'+id).value}});
+    await api('/api/admin/ticket-types/'+id+'/update',{method:'POST',body:{name:$('tn'+id).value,description:$('td'+id).value,price:+$('tp'+id).value,quantityTotal:+$('tq'+id).value,requiresPool:$('tr'+id).checked}});
     ok('tOk'+id,'Saved. New price applies to new orders.');
   }catch(e){ err('tErr'+id,e.message); }
 }
 async function toggleEvent(id, status){ try{ await api('/api/admin/events/'+id+'/status',{method:'POST',body:{status}}); loadEvents(); }catch(e){alert(e.message);} }
 async function toggleType(id, status){ try{ await api('/api/admin/ticket-types/'+id+'/update',{method:'POST',body:{status}}); loadEvents(); }catch(e){alert(e.message);} }
+
+// ── gallery photos ──
+let phSorter=false;
+async function loadPhotos(){
+  try{
+    const rows = await api('/api/admin/gallery');
+    const box=$('phList');
+    box.innerHTML = rows.map(p=>'<div class="ord-i ph-i" data-tid="'+p.id+'"><span class="grip" aria-label="Drag to reorder">&#10303;</span>'
+      +'<img src="/api/gallery/'+p.id+'/img" alt="" loading="lazy"><span class="nm" style="font-size:12px;font-weight:400;color:var(--mut)">'+Math.round(p.bytes/1024)+' KB</span>'
+      +'<button class="btn sm danger" data-act="delPhoto:'+p.id+'">Delete</button></div>').join('') || '<div class="empty">No photos yet. Tap "Add photos".</div>';
+    if(!phSorter){ phSorter=true; initSort(box, async ids=>{ err('phErr',''); try{ await api('/api/admin/gallery/reorder',{method:'POST',body:{ids}}); ok('phOk','Order saved.'); }catch(e){ err('phErr',e.message); loadPhotos(); } }); }
+  }catch(e){ err('phErr',e.message); }
+}
+// Shrink to max 1000px wide/tall and re-encode as JPEG, so a 5 MB phone photo becomes ~150 KB.
+function shrink(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{
+      const sc=Math.min(1,1000/Math.max(img.width,img.height)), w=Math.round(img.width*sc), h=Math.round(img.height*sc);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      const x=c.getContext('2d'); x.fillStyle='#000'; x.fillRect(0,0,w,h); x.drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      c.toBlob(b=>b?resolve(b):reject(new Error('Could not process '+file.name)),'image/jpeg',0.8);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error(file.name+' is not a photo this browser can open.')); };
+    img.src=url;
+  });
+}
+async function uploadPhotos(files){
+  err('phErr',''); $('phOk').hidden=true;
+  const btn=$('phBtn'); btn.disabled=true; let done=0;
+  try{
+    for(const f of files){
+      btn.textContent='Uploading '+(done+1)+' of '+files.length+'…';
+      const blob=await shrink(f);
+      const r=await fetch('/api/admin/gallery',{method:'POST',headers:{'X-Admin-Token':TOKEN,'Content-Type':'image/jpeg'},body:blob});
+      let d={}; try{d=await r.json();}catch(e){}
+      if(!r.ok) throw new Error(d.error||'Upload failed ('+r.status+')');
+      done++;
+    }
+    ok('phOk',done+' photo'+(done===1?'':'s')+' added. They show on the site right away.');
+  }catch(e){ err('phErr',(done?done+' added, then: ':'')+e.message); }
+  btn.disabled=false; btn.textContent='+ Add photos'; $('phFile').value=''; loadPhotos();
+}
+$('phFile').addEventListener('change',e=>{ const f=[...e.target.files]; if(f.length) uploadPhotos(f); });
+async function delPhoto(id){ if(!confirm('Delete this photo from the site?')) return; try{ await api('/api/admin/gallery/'+id+'/delete',{method:'POST'}); loadPhotos(); }catch(e){ err('phErr',e.message); } }
 
 // ── manual ──
 async function manualConfirm(){
@@ -233,7 +347,7 @@ async function reissue(){
 
 // ── global click ──
 const acts={
-  login, logout, searchOrders, dlOrders, dlAttendees, searchTickets,
+  login, logout, pickPhotos:()=>$('phFile').click(), searchOrders, dlOrders, dlAttendees, searchTickets,
   createPromo, createEvent, createType, manualConfirm, reissue, loadReview,
 };
 document.addEventListener('click', e=>{
@@ -245,6 +359,7 @@ document.addEventListener('click', e=>{
   else if(fn==='toggleType') toggleType(args[0],args[1]);
   else if(fn==='saveEvent') saveEvent(args[0]);
   else if(fn==='saveType') saveType(args[0]);
+  else if(fn==='delPhoto') delPhoto(args[0]);
   else if(fn==='cancel') setTicketStatus(args[0],'CANCELLED');
   else if(fn==='unvoid') setTicketStatus(args[0],'VALID');
   else if(fn==='ri') reissueQR(args[0]);
@@ -254,11 +369,13 @@ document.addEventListener('click', e=>{
 $('tok').addEventListener('keydown', e=>{ if(e.key==='Enter') login(); });
 
 async function loadAll(){
+  loadLive();
   await loadStats();
   await loadAudit();
   searchOrders();
   clearInterval(refreshTimer);
-  refreshTimer = setInterval(()=>{ if(!document.hidden){ loadStats(); loadAudit(); } }, 30000);
+  refreshTimer = setInterval(()=>{ if(!document.hidden) loadLive(); }, 10000);
+  setInterval(()=>{ if(!document.hidden && TOKEN){ loadStats(); loadAudit(); } }, 30000);
 }
 
 })();

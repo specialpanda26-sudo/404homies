@@ -41,12 +41,45 @@ router.get("/stats", U.wrap(async (req, res) => {
                   COUNT(*) FILTER (WHERE status='CANCELLED')::int AS cancelled FROM tickets`),
     query(`SELECT tt.id, e.name AS event, tt.name, tt.price, tt.quantity_total, tt.quantity_sold, tt.status,
                   COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.ticket_type_id = tt.id AND o.status='PAID'),0)::int AS revenue
-             FROM ticket_types tt JOIN events e ON e.id = tt.event_id ORDER BY e.id, tt.price`),
+             FROM ticket_types tt JOIN events e ON e.id = tt.event_id ORDER BY e.id, tt.sort_order, tt.price, tt.id`),
     query(`SELECT (SELECT COUNT(*) FROM orders WHERE status='EXPIRED' AND payment_started_at IS NOT NULL)::int AS stuck,
                   (SELECT COUNT(*) FROM orders WHERE status='REFUND_REQUIRED')::int AS refunds,
                   (SELECT COUNT(*) FROM payment_transactions WHERE status='DUPLICATE')::int AS duplicates`),
   ]);
   res.json({ orders: o.rows[0], tickets: t.rows[0], tiers: tiers.rows, review: review.rows[0] });
+}));
+
+// Live dashboard: polled every few seconds by the admin page.
+router.get("/live", U.wrap(async (req, res) => {
+  const dayStart = "(date_trunc('day', now() AT TIME ZONE 'Africa/Nairobi') AT TIME ZONE 'Africa/Nairobi')";
+  const [win, tiers, promos, recent, door] = await Promise.all([
+    query(`SELECT COALESCE(SUM(quantity) FILTER (WHERE paid_at > now() - interval '1 hour'),0)::int AS tickets_1h,
+                  COALESCE(SUM(total_amount) FILTER (WHERE paid_at > now() - interval '1 hour'),0)::int AS revenue_1h,
+                  COALESCE(SUM(quantity) FILTER (WHERE paid_at >= ${dayStart}),0)::int AS tickets_today,
+                  COALESCE(SUM(total_amount) FILTER (WHERE paid_at >= ${dayStart}),0)::int AS revenue_today,
+                  COALESCE(SUM(total_amount),0)::int AS revenue_all,
+                  COALESCE(SUM(quantity),0)::int AS tickets_all,
+                  (SELECT COUNT(*) FROM orders WHERE status IN ('PENDING','PAYMENT_PROCESSING') AND expires_at > now())::int AS pending_now,
+                  (SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE status IN ('PENDING','PAYMENT_PROCESSING') AND expires_at > now())::int AS pending_amount
+             FROM orders WHERE status = 'PAID'`),
+    query(`SELECT tt.id, e.name AS event, tt.name, tt.price, tt.quantity_total, tt.quantity_sold, tt.status, tt.requires_pool,
+                  COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.ticket_type_id = tt.id AND o.status='PAID'),0)::int AS revenue
+             FROM ticket_types tt JOIN events e ON e.id = tt.event_id WHERE e.status = 'ACTIVE'
+            ORDER BY e.id, tt.sort_order, tt.price, tt.id`),
+    query(`SELECT p.code, p.kind, p.value, p.max_uses, p.active, p.expires_at,
+                  COUNT(o.id) FILTER (WHERE o.status='PAID')::int AS paid_orders,
+                  COALESCE(SUM(o.quantity) FILTER (WHERE o.status='PAID'),0)::int AS tickets,
+                  COALESCE(SUM(o.discount_amount) FILTER (WHERE o.status='PAID'),0)::int AS discount_given,
+                  COALESCE(SUM(o.total_amount) FILTER (WHERE o.status='PAID'),0)::int AS revenue
+             FROM promo_codes p LEFT JOIN orders o ON o.promo_code = p.code
+            GROUP BY p.id ORDER BY p.active DESC, p.id DESC LIMIT 12`),
+    query(`SELECT o.order_number, o.holder_name, o.quantity, o.total_amount, o.promo_code, o.paid_at, tt.name AS type_name
+             FROM orders o JOIN ticket_types tt ON tt.id = o.ticket_type_id
+            WHERE o.status = 'PAID' ORDER BY o.paid_at DESC NULLS LAST LIMIT 8`),
+    query(`SELECT COUNT(*) FILTER (WHERE status IN ('VALID','USED'))::int AS total, COUNT(*) FILTER (WHERE status = 'USED')::int AS used FROM tickets`),
+  ]);
+  res.set("Cache-Control", "no-store");
+  res.json({ now: new Date().toISOString(), sales: win.rows[0], tiers: tiers.rows, promos: promos.rows, recent: recent.rows, door: door.rows[0] });
 }));
 
 // Money that may have moved without tickets being issued.
@@ -164,6 +197,44 @@ router.post("/tickets/:ticketNumber/status", U.wrap(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// ── gallery photos ─────────────────────────────────────────────────────────
+const MAX_PHOTOS = 20;
+router.get("/gallery", U.wrap(async (req, res) => {
+  const { rows } = await query("SELECT id, alt, octet_length(data)::int AS bytes FROM gallery_photos ORDER BY sort_order, id");
+  res.json(rows);
+}));
+
+// The browser shrinks each photo to a ~1000px JPEG before sending it as the raw request body.
+router.post("/gallery", express.raw({ type: "image/jpeg", limit: "900kb" }), U.wrap(async (req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length < 1000) throw bad("Choose a JPG or PNG photo.");
+  if (buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) throw bad("That file isn't a valid photo.");
+  const n = (await query("SELECT COUNT(*)::int AS c FROM gallery_photos")).rows[0].c;
+  if (n >= MAX_PHOTOS) throw bad(`The gallery is full (${MAX_PHOTOS} photos max). Delete one first.`);
+  const alt = U.cleanName(String(req.query.alt || ""), 80) || null;
+  const { rows } = await query(
+    "INSERT INTO gallery_photos (data, alt, sort_order) VALUES ($1,$2,(SELECT COALESCE(MAX(sort_order),0)+1 FROM gallery_photos)) RETURNING id",
+    [buf, alt]
+  );
+  await audit("PHOTO_ADDED", "photo", rows[0].id, { bytes: buf.length }, req.ip);
+  res.json({ id: rows[0].id });
+}));
+
+router.post("/gallery/reorder", U.wrap(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((x) => Number.parseInt(x, 10)) : [];
+  if (!ids.length || ids.length > 100 || ids.some((n) => !Number.isInteger(n) || n < 1) || new Set(ids).size !== ids.length) throw bad("Send the photo ids in the order you want.");
+  await query("UPDATE gallery_photos t SET sort_order = x.ord::int FROM unnest($1::bigint[]) WITH ORDINALITY AS x(id, ord) WHERE t.id = x.id", [ids]);
+  res.json({ ok: true });
+}));
+
+router.post("/gallery/:id/delete", U.wrap(async (req, res) => {
+  const id = int(req.params.id, 1, 2147483647, "id");
+  const { rowCount } = await query("DELETE FROM gallery_photos WHERE id = $1", [id]);
+  if (!rowCount) throw new U.HttpError(404, "Photo not found.");
+  await audit("PHOTO_DELETED", "photo", id, {}, req.ip);
+  res.json({ ok: true });
+}));
+
 // ── promo codes ────────────────────────────────────────────────────────────
 router.get("/promos", U.wrap(async (req, res) => {
   const { rows } = await query("SELECT id, code, kind, value, max_uses, used_count, event_id, active, expires_at FROM promo_codes ORDER BY id DESC");
@@ -204,7 +275,7 @@ router.post("/promos/:id/toggle", U.wrap(async (req, res) => {
 // ── events & ticket types ──────────────────────────────────────────────────
 router.get("/events", U.wrap(async (req, res) => {
   const ev = await query("SELECT id, name, description, venue, event_date::text AS event_date, event_time, status FROM events ORDER BY event_date DESC, id DESC");
-  const tt = await query("SELECT id, event_id, name, description, price, quantity_total, quantity_sold, status FROM ticket_types ORDER BY price");
+  const tt = await query("SELECT id, event_id, name, description, price, quantity_total, quantity_sold, status, requires_pool, sort_order FROM ticket_types ORDER BY sort_order, price, id");
   res.json(ev.rows.map((e) => ({ ...e, ticketTypes: tt.rows.filter((t) => t.event_id === e.id) })));
 }));
 
@@ -274,6 +345,19 @@ router.post("/ticket-types", U.wrap(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// Drag-to-reorder: send the ticket ids in the order they should appear on the site (top to bottom).
+router.post("/ticket-types/reorder", U.wrap(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((x) => Number.parseInt(x, 10)) : [];
+  if (!ids.length || ids.length > 100 || ids.some((n) => !Number.isInteger(n) || n < 1) || new Set(ids).size !== ids.length) throw bad("Send the ticket ids in the order you want.");
+  await query(
+    `UPDATE ticket_types t SET sort_order = x.ord::int
+       FROM unnest($1::bigint[]) WITH ORDINALITY AS x(id, ord) WHERE t.id = x.id`,
+    [ids]
+  );
+  await audit("TYPES_REORDERED", "ticket_type", ids.join(","), { ids }, req.ip);
+  res.json({ ok: true });
+}));
+
 router.post("/ticket-types/:id/update", U.wrap(async (req, res) => {
   const id = int(req.params.id, 1, 2147483647, "id");
   const b = req.body || {};
@@ -298,6 +382,7 @@ router.post("/ticket-types/:id/update", U.wrap(async (req, res) => {
     if (!["ACTIVE", "HIDDEN"].includes(s)) throw bad("Status must be ACTIVE or HIDDEN.");
     vals.push(s); sets.push(`status = $${vals.length}`);
   }
+  if (b.requiresPool != null) { vals.push(b.requiresPool === true || b.requiresPool === "true"); sets.push(`requires_pool = $${vals.length}`); }
   if (!sets.length) throw bad("Nothing to update.");
   await query(`UPDATE ticket_types SET ${sets.join(", ")} WHERE id = $1`, vals);
   await audit("TYPE_UPDATED", "ticket_type", id, b, req.ip);

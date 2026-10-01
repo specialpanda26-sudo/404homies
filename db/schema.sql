@@ -132,6 +132,27 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- v2.5: admin-controlled ticket order, and "pool ticket required" tickets (the after party).
+ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ticket_types' AND column_name = 'requires_pool') THEN
+    ALTER TABLE ticket_types ADD COLUMN requires_pool BOOLEAN NOT NULL DEFAULT FALSE;
+    -- one-time: any existing "after party" ticket becomes pool-ticket-only. After this, the admin controls it.
+    UPDATE ticket_types SET requires_pool = TRUE WHERE name ILIKE '%after%party%';
+  END IF;
+END $$;
+
+-- v2.6: photos uploaded from the admin panel. Stored in the database (Render's disk is wiped on every deploy).
+CREATE TABLE IF NOT EXISTS gallery_photos (
+  id         BIGSERIAL PRIMARY KEY,
+  data       BYTEA NOT NULL,
+  alt        TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE gallery_photos ENABLE ROW LEVEL SECURITY;
+
 -- Supabase exposes every table in the public schema through a REST API
 -- using the public "anon" key. Turning on Row Level Security with NO policies
 -- blocks that route completely. This server connects with the database

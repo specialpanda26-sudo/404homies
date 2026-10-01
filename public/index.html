@@ -48,7 +48,6 @@
 
   <!-- STEP 1 -->
   <div class="panel glass on" id="p1" role="tabpanel">
-    <div class="stock" id="stock" hidden><div class="stock-t"><span id="stockL"></span><span id="stockR"></span></div><div class="bar"><i id="stockBar"></i></div></div>
     <div id="tiers" role="radiogroup" aria-label="Ticket type" aria-busy="true"><div class="sk"></div><div class="sk"></div></div>
     <div class="qty"><button type="button" data-act="bump:-1" aria-label="Fewer tickets">&minus;</button><b id="q">1</b><button type="button" data-act="bump:1" aria-label="More tickets">+</button><span id="qHint" style="color:var(--mut);font-size:13px"></span></div>
     <div class="att" id="att" hidden>
@@ -139,7 +138,7 @@
 
   <section class="sec glass" id="schedWrap" hidden>
     <h2>Schedule</h2>
-    <ol class="tl" id="sched"></ol>
+    <ol class="timeline" id="sched"></ol>
   </section>
 
   <section class="sec glass" aria-labelledby="hwT">

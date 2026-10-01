@@ -76,6 +76,35 @@ input::placeholder{color:rgba(240,232,216,.3)}
 .tier-row{background:rgba(201,168,76,.06);border:1px solid var(--border);border-radius:11px;padding:10px 13px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .tier-row b{color:var(--gold2)}
 .tier-row .meta{font-size:11px;color:var(--mut)}
+/* live panel */
+.live{border-color:rgba(74,222,128,.35)}
+.live h3{justify-content:space-between}
+.pulse{display:inline-flex;align-items:center;gap:7px;color:var(--good);font-size:12px;font-weight:700;letter-spacing:.8px}
+.pulse i{width:9px;height:9px;border-radius:50%;background:var(--good);box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:pl 1.6s infinite}
+@keyframes pl{70%{box-shadow:0 0 0 9px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+.lgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-bottom:14px}
+.lcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.lcols h4{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.7px;margin:0 0 8px}
+.bar2{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:6px}
+.bar2 i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:99px;transition:width .6s}
+.lrow{padding:9px 0;border-bottom:1px solid rgba(201,168,76,.1);font-size:12px}
+.lrow:last-child{border:none}
+.lrow .t{display:flex;justify-content:space-between;gap:8px}
+.lrow .t b{color:var(--gold2)}
+.lrow .m{color:var(--mut);font-size:11px;margin-top:2px}
+/* drag-to-reorder */
+.ord{display:flex;flex-direction:column;gap:6px;margin:6px 0 4px;user-select:none;-webkit-user-select:none}
+.ord-i{display:flex;align-items:center;gap:10px;background:rgba(201,168,76,.08);border:1px solid var(--border);border-radius:11px;padding:11px 12px;position:relative;background-clip:padding-box}
+.ord-i .grip{font-size:22px;line-height:1;color:var(--gold2);padding:6px 10px;margin:-6px 0 -6px -6px;cursor:grab;touch-action:none;border-radius:8px}
+.ord-i .grip:active{cursor:grabbing}
+.ord-i .nm{flex:1;font-weight:700;color:var(--txt)}
+.ord-i .pr{color:var(--mut);font-size:12px}
+.ord-i.drag{z-index:5;box-shadow:0 10px 26px rgba(0,0,0,.6);border-color:var(--gold);background:rgba(40,28,10,.95);transition:none}
+.ord-i.before{box-shadow:0 -3px 0 0 var(--gold2)}
+.ord-i.after{box-shadow:0 3px 0 0 var(--gold2)}
+.ph-i img{width:64px;height:48px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex:none}
+.toggle{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:12px;color:var(--txt);text-transform:none;letter-spacing:0;cursor:pointer}
+.toggle input{width:auto}
 @media(max-width:600px){.main{padding:0 10px}.stats{grid-template-columns:repeat(2,1fr)}.tbl td,.tbl th{padding:5px 5px}}
 </style>
 </head>
@@ -100,6 +129,12 @@ input::placeholder{color:rgba(240,232,216,.3)}
   </div>
 
   <div class="main">
+    <!-- LIVE -->
+    <div class="section live" id="live">
+      <h3><span class="pulse"><i></i>LIVE</span><small id="liveAt">connecting…</small></h3>
+      <div id="liveBody"><div class="empty">Loading…</div></div>
+    </div>
+
     <!-- STATS -->
     <div class="stats" id="stats"></div>
 
@@ -111,6 +146,7 @@ input::placeholder{color:rgba(240,232,216,.3)}
       <button class="navbtn" data-tab="review">Review ⚠</button>
       <button class="navbtn" data-tab="promos">Promo codes</button>
       <button class="navbtn" data-tab="events">Events</button>
+      <button class="navbtn" data-tab="photos">Photos</button>
       <button class="navbtn" data-tab="manual">Manual confirm</button>
     </div>
 
@@ -252,6 +288,18 @@ input::placeholder{color:rgba(240,232,216,.3)}
       <div class="section">
         <h3>Events</h3>
         <div id="eventList"></div>
+      </div>
+    </div>
+
+    <div id="photos" class="tabpanel" hidden>
+      <div class="section">
+        <h3>Gallery photos <small>shown as the sliding photos on the site</small></h3>
+        <p class="note" style="margin:0 0 10px">Pick one or more photos from your phone. They're shrunk automatically so the page stays fast. Drag &#10303; to change the order, up to 20 photos.</p>
+        <input id="phFile" type="file" accept="image/*" multiple hidden>
+        <button type="button" class="btn" id="phBtn" data-act="pickPhotos">+ Add photos</button>
+        <div class="err" id="phErr"></div>
+        <div class="ok" id="phOk" hidden></div>
+        <div class="ord" id="phList" style="margin-top:14px"></div>
       </div>
     </div>
 

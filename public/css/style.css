@@ -238,8 +238,9 @@ input[type=checkbox]{width:auto}
 .badge{display:inline-block; margin-top:6px; padding:2px 9px; border-radius:99px; font-size:11px; font-weight:700; border:1px solid}
 .badge.low{color:#fbbf24; border-color:rgba(251,191,36,.45); background:rgba(251,191,36,.1)}
 .badge.out{color:var(--bad); border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.1)}
+.badge.req{color:var(--acc); border-color:var(--line2); background:rgba(232,197,106,.08)}
 .tier span.badge{display:inline-block; margin-top:6px; color:inherit}
-.tier span.badge.low{color:#fbbf24} .tier span.badge.out{color:var(--bad)}
+.tier span.badge.req{color:var(--acc)} .tier span.badge.low{color:#fbbf24} .tier span.badge.out{color:var(--bad)}
 .att{margin-top:6px} .att input{margin-top:8px; font-size:15px; padding:12px 14px}
 .chk{display:flex; gap:12px; align-items:flex-start; margin:20px 0 0; text-transform:none; letter-spacing:0; font-size:13.5px; color:var(--txt); line-height:1.45; cursor:pointer}
 .chk input{flex:none; width:20px; height:20px; margin-top:1px; accent-color:#e8c56a}
@@ -325,10 +326,10 @@ input[type=checkbox]{width:auto}
 .chips{display:flex; flex-wrap:wrap; gap:8px}
 .chips span{font-size:13px; padding:7px 13px; border:1px solid var(--line); border-radius:999px; background:rgba(0,0,0,.35)}
 .chips small{color:var(--mut); margin-left:6px; font-size:12px}
-.tl{list-style:none; border-left:1px solid var(--line2); margin-left:6px}
-.tl li{position:relative; padding:0 0 16px 20px} .tl li:last-child{padding-bottom:0}
-.tl li::before{content:""; position:absolute; left:-5px; top:6px; width:9px; height:9px; border-radius:50%; background:var(--acc)}
-.tl b{color:var(--acc); font-size:13px; font-weight:600} .tl span{display:block; font-size:15px} .tl small{display:block; color:var(--mut); font-size:13px}
+.timeline{list-style:none; border-left:1px solid var(--line2); margin-left:6px}
+.timeline li{position:relative; padding:0 0 16px 20px} .timeline li:last-child{padding-bottom:0}
+.timeline li::before{content:""; position:absolute; left:-5px; top:6px; width:9px; height:9px; border-radius:50%; background:var(--acc)}
+.timeline b{color:var(--acc); font-size:13px; font-weight:600} .timeline span{display:block; font-size:15px} .timeline small{display:block; color:var(--mut); font-size:13px}
 #faq details{border-top:1px solid var(--line)} #faq details:first-child{border-top:0}
 #faq summary{list-style:none; cursor:pointer; padding:14px 28px 14px 0; position:relative; font-size:15px; font-weight:500}
 #faq summary::-webkit-details-marker{display:none}

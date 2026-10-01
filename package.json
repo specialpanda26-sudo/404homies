@@ -1,6 +1,6 @@
 {
   "name": "hidden-gem-ticketing",
-  "version": "2.3.0",
+  "version": "2.6.0",
   "description": "Event ticketing with M-Pesa (TinyPesa) payments, QR tickets and a door scanner. Node + Express + Supabase Postgres.",
   "main": "server.js",
   "private": true,

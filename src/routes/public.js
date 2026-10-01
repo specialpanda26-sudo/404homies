@@ -113,6 +113,21 @@ router.get("/config", (req, res) => {
   });
 });
 
+// Gallery photos uploaded from the admin panel. IDs never change content, so browsers can cache them for good.
+router.get("/gallery", limit(120), U.wrap(async (req, res) => {
+  const { rows } = await query("SELECT id, alt FROM gallery_photos ORDER BY sort_order, id");
+  res.set("Cache-Control", "no-store");
+  res.json(rows.map((r) => ({ src: `/api/gallery/${r.id}/img`, alt: r.alt || "" })));
+}));
+router.get("/gallery/:id/img", limit(240), U.wrap(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) throw new U.HttpError(404, "Not found.");
+  const { rows } = await query("SELECT data FROM gallery_photos WHERE id = $1", [id]);
+  if (!rows[0]) throw new U.HttpError(404, "Not found.");
+  res.set({ "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" });
+  res.send(rows[0].data);
+}));
+
 router.get("/events", limit(120), U.wrap(async (req, res) => {
   const ev = await query(
     `SELECT id, name, description, venue, event_date::text AS event_date, event_time
@@ -121,13 +136,13 @@ router.get("/events", limit(120), U.wrap(async (req, res) => {
   const ids = ev.rows.map((e) => e.id);
   const types = ids.length
     ? await query(
-        `SELECT tt.id, tt.event_id, tt.name, tt.description, tt.price, tt.quantity_total::int AS total,
+        `SELECT tt.id, tt.event_id, tt.name, tt.description, tt.price, tt.quantity_total::int AS total, tt.requires_pool AS "requiresPool",
                 GREATEST(0, tt.quantity_total - tt.quantity_sold - COALESCE((
                   SELECT SUM(o.quantity) FROM orders o
                    WHERE o.ticket_type_id = tt.id AND o.status IN ('PENDING','PAYMENT_PROCESSING') AND o.expires_at > now()
                 ), 0))::int AS remaining
            FROM ticket_types tt
-          WHERE tt.status = 'ACTIVE' AND tt.event_id = ANY($1::bigint[]) ORDER BY tt.price`,
+          WHERE tt.status = 'ACTIVE' AND tt.event_id = ANY($1::bigint[]) ORDER BY tt.sort_order, tt.price, tt.id`,
         [ids]
       )
     : { rows: [] };
@@ -190,6 +205,19 @@ router.post("/orders", limit(40), V.requirePass, U.wrap(async (req, res) => {
     );
     if (open.rows[0].by_phone >= cfg.maxOpenOrdersPerPhone || open.rows[0].by_ip >= cfg.maxOpenOrdersPerIp) {
       throw new U.HttpError(429, "You already have unpaid orders waiting. Finish paying for them, or wait a few minutes for them to expire.");
+    }
+    if (tt.requires_pool) {
+      // After party: only for people who already hold a paid pool-party ticket (matched by the M-Pesa number).
+      const pool = await c.query(
+        `SELECT 1 FROM orders o JOIN ticket_types pt ON pt.id = o.ticket_type_id
+          WHERE o.status = 'PAID' AND o.event_id = $1 AND o.holder_phone = $2 AND pt.requires_pool = FALSE
+            AND EXISTS (SELECT 1 FROM tickets t WHERE t.order_id = o.id AND t.status <> 'CANCELLED')
+          LIMIT 1`,
+        [tt.event_id, phone]
+      );
+      if (!pool.rowCount) {
+        throw new U.HttpError(400, `${tt.name} tickets are only for guests who have paid for a pool party ticket. Buy your pool party ticket first, then use the same M-Pesa number here.`);
+      }
     }
     const remaining = await remainingStock(c, tt.id);
     if (remaining < quantity) {
