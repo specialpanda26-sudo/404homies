@@ -321,8 +321,10 @@ input[type=checkbox]{width:auto}
 .how li{counter-increment:s; position:relative; padding-left:42px; min-height:32px}
 .how li::before{content:counter(s); position:absolute; left:0; top:0; width:30px; height:30px; border-radius:50%; border:1px solid var(--acc); color:var(--acc); display:grid; place-items:center; font:700 14px var(--serif)}
 .how b{display:block; font-size:15px; font-weight:600} .how span{font-size:13px; color:var(--mut)}
-.gal{display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x mandatory; margin:0 -4px 12px; padding:0 4px 4px}
-.gal img{flex:none; width:78%; max-width:300px; aspect-ratio:4/3; object-fit:cover; border-radius:18px; border:1px solid var(--line2); scroll-snap-align:start}
+.gal{display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x mandatory; margin:16px calc(50% - 50vw); padding:0 16px; scroll-padding:0 16px; scrollbar-width:none; -webkit-overflow-scrolling:touch}
+.gal::-webkit-scrollbar{display:none}
+.gal[hidden]{display:none}
+.gal img{flex:none; width:min(78vw,320px); aspect-ratio:4/3; object-fit:cover; border-radius:18px; border:1px solid var(--line2); scroll-snap-align:start}
 .chips{display:flex; flex-wrap:wrap; gap:8px}
 .chips span{font-size:13px; padding:7px 13px; border:1px solid var(--line); border-radius:999px; background:rgba(0,0,0,.35)}
 .chips small{color:var(--mut); margin-left:6px; font-size:12px}

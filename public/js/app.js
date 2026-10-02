@@ -252,7 +252,6 @@
         const o = await api('/api/orders', { method: 'POST', headers: { 'X-Verify': S.pass ? S.pass.token : '' }, body: {
           name: $('nm').value.trim(), phone: raw, ticketTypeId: S.tierId, quantity: S.qty, attendees: names(), agreed: $('agree').checked, promoCode: $('promo').value.trim() } });
         S.order = o; S.sig = sig;
-        store.set('pp_order', { orderNumber: o.orderNumber, accessKey: o.accessKey, phone: o.phone, total: o.totalAmount, savedAt: Date.now() });
       } else reused = true;
       btn.textContent = 'Sending prompt\u2026';
       let stk;
@@ -276,6 +275,7 @@
     $('mpStat').innerHTML = '';
     term('> Sending M-Pesa prompt to ' + (phone || 'your phone') + ' \u2026');
     term('> Waiting for your PIN. Amount: ' + money(amount || S.order.totalAmount));
+    term("> Don't refresh this page. If you do, use 'Find my ticket' once you've paid.");
     $('orderRef').textContent = 'Order ' + S.order.orderNumber + ' \u2014 keep this if you need help.';
     setCooldown(cooldown || S.cfg.stkCooldownSeconds || 45);
     go(2);
@@ -367,26 +367,7 @@
   function mergeTickets(list) {
     const map = new Map(S.tickets.map((t) => [t.ticketNumber, t]));
     (list || []).forEach((t) => map.set(t.ticketNumber, t));
-    S.tickets = Array.from(map.values());
-    store.set('pp_tickets', { tickets: S.tickets, savedAt: Date.now() });
-  }
-
-  /* Re-fetch saved tickets we hold an access key for, so a reissued QR or a cancelled ticket shows correctly. */
-  async function refreshSaved() {
-    if (!S.tickets.length || !navigator.onLine) return;
-    const keys = store.get('pp_keys') || {};
-    const links = store.get('pp_links') || {};
-    const nums = Array.from(new Set(S.tickets.map((t) => t.orderNumber))).filter((n) => keys[n] || links[n]).slice(0, 5);
-    let changed = false;
-    for (const n of nums) {
-      try {
-        const d = keys[n]
-          ? await api('/api/orders/' + encodeURIComponent(n) + '/status', { headers: { 'X-Access-Key': keys[n] } })
-          : Object.assign({ status: 'PAID' }, await api('/api/tickets/link/' + encodeURIComponent(links[n])));
-        if (d.status === 'PAID' && d.tickets && d.tickets.length) { mergeTickets(d.tickets); changed = true; }
-      } catch (e) { /* offline or not found: keep the saved copy */ }
-    }
-    if (changed) renderTickets();
+    S.tickets = Array.from(map.values()); // kept in memory only: a refresh starts clean, "Find my ticket" brings them back
   }
 
   /* One-tap link from the organiser's WhatsApp message: /?t=<token> opens the ticket straight away. */
@@ -397,7 +378,6 @@
     try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
     try {
       const d = await api('/api/tickets/link/' + encodeURIComponent(tok));
-      const links = store.get('pp_links') || {}; links[d.orderNumber] = tok; store.set('pp_links', links);
       mergeTickets(d.tickets); renderTickets(); updateTabs(); go(3);
       return true;
     } catch (e) { toast(e.message); return false; }
@@ -405,8 +385,7 @@
 
   function finish(tickets) {
     stopPolling(); clearInterval(S.cdTimer); slow = false;
-    if (S.order) { const k = store.get('pp_keys') || {}; k[S.order.orderNumber] = S.order.accessKey; store.set('pp_keys', k); }
-    mergeTickets(tickets); store.del('pp_order');
+    mergeTickets(tickets);
     S.order = null; S.sig = ''; view('idle'); payBtnLabel();
     renderTickets(); updateTabs(); go(3);
     if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
@@ -535,7 +514,6 @@
     if (code.length < 6) { setErr('fErr', 'Enter the M-Pesa code from your SMS (e.g. SGH7K2L9QX) or your order number.'); b.disabled = false; return; }
     try {
       const d = await api('/api/tickets/lookup', { method: 'POST', body: { phone, code } });
-      if (d.link) { const links = store.get('pp_links') || {}; links[d.orderNumber] = d.link; store.set('pp_links', links); }
       mergeTickets(d.tickets); S.showFind = false; $('fCode').value = ''; renderTickets(); updateTabs(); toast('Ticket found.');
     } catch (e) { setErr('fErr', e.message); } finally { b.disabled = false; }
   }
@@ -599,7 +577,7 @@
     $('gal').innerHTML = gal.map((g) => '<img loading="lazy" src="' + esc(g.src) + '" alt="' + esc(g.alt || '') + '">').join(''); $('gal').hidden = !gal.length;
     $('incl').innerHTML = incl.map((t) => '<span>' + esc(t) + '</span>').join(''); $('incl').hidden = !incl.length;
     $('line').innerHTML = line.map((d) => '<span>' + esc(d.name || d) + (d.role ? '<small>' + esc(d.role) + '</small>' : '') + '</span>').join(''); $('lineWrap').hidden = !line.length;
-    $('night').hidden = !(gal.length || incl.length || line.length);
+    $('night').hidden = !(incl.length || line.length);
     initGalleryAuto();
     const sch = arr(C.schedule).filter((s) => s && s.title);
     $('sched').innerHTML = sch.map((s) => '<li>' + (s.time ? '<b>' + esc(s.time === '@start' ? (S.ev ? fmtTime(S.ev.event_time) : '') : s.time) + '</b>' : '') + '<span>' + esc(s.title) + '</span>' + (s.note ? '<small>' + esc(s.note) + '</small>' : '') + '</li>').join(''); $('schedWrap').hidden = !sch.length;
@@ -609,7 +587,7 @@
     $('soc').innerHTML = links.map((x) => '<a href="' + esc(so[x[0]]) + '" target="_blank" rel="noopener">' + x[1] + '</a>').join(''); $('soc').hidden = !links.length;
   }
 
-  /* Gallery auto-slide: every 3.5 s it glides to the next photo (left to right through the set), loops back to the first,
+  /* Gallery auto-slide: every 2.4 s it glides to the next photo (left to right through the set), loops back to the first,
    * pauses while someone is touching/dragging it, while it is off-screen or the tab is hidden, and never runs for reduced-motion. */
   function initGalleryAuto() {
     const g = $('gal'); if (!g || g.dataset.auto) return; g.dataset.auto = '1';
@@ -624,6 +602,7 @@
     g.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') later(); }, { passive: true });
     if ('IntersectionObserver' in window) new IntersectionObserver((en) => { seen = en[0].isIntersecting; }).observe(g);
     let idx = 0;
+    const pad = parseFloat(getComputedStyle(g).paddingLeft) || 0;
     setInterval(() => {
       const k = g.children; if (hold || !seen || document.hidden || g.hidden || k.length < 2) return;
       const gl = g.getBoundingClientRect().left;
@@ -631,8 +610,8 @@
       for (let i = 0; i < k.length; i++) { const d = Math.abs(k[i].getBoundingClientRect().left - gl); if (d < best) { best = d; cur = i; } }
       idx = (cur + 1) % k.length;
       const nx = k[idx];
-      g.scrollTo({ left: idx === 0 ? 0 : g.scrollLeft + nx.getBoundingClientRect().left - gl - 4, behavior: 'smooth' });
-    }, 3500);
+      g.scrollTo({ left: idx === 0 ? 0 : g.scrollLeft + nx.getBoundingClientRect().left - gl - pad, behavior: 'smooth' });
+    }, 2400);
   }
 
   function initAnalytics() {
@@ -677,34 +656,17 @@
   window.addEventListener('offline', () => $('offline').classList.add('on'));
 
   /* ───────── boot ───────── */
-  async function resume() {
-    const so = store.get('pp_order'); if (!so || !so.orderNumber) return;
-    if (Date.now() - (so.savedAt || 0) > 30 * 60 * 1000) { store.del('pp_order'); return; }
-    try {
-      const d = await api('/api/orders/' + encodeURIComponent(so.orderNumber) + '/status', { headers: { 'X-Access-Key': so.accessKey } });
-      S.order = { orderNumber: so.orderNumber, accessKey: so.accessKey, totalAmount: d.totalAmount, phone: so.phone, resumed: true };
-      const line = 'Order ' + so.orderNumber + ' \u2014 ' + money(d.totalAmount);
-      if (d.status === 'PAID') finish(d.tickets || []);
-      else if (d.status === 'PAYMENT_PROCESSING') { S.ready = true; updateTabs(); $('sum').textContent = line; showWaiting(so.phone, d.totalAmount, d.canResendIn); startPolling(); }
-      else if (d.status === 'FAILED') { S.ready = true; updateTabs(); $('sum').textContent = line; go(2); showResult('failed', d); }
-      else { S.order = null; store.del('pp_order'); }
-    } catch (e) { if (e.status === 404) store.del('pp_order'); }
-  }
-
   async function boot() {
     $('offline').classList.toggle('on', !navigator.onLine);
     try { S.cfg = await api('/api/config'); } catch (e) { /* defaults apply */ }
     syncHuman();
     const sp = store.get('pp_pass'); if (sp && sp.token && sp.exp > Date.now()) S.pass = sp;
     syncHuman(); initSupport(); initSticky(); initAnalytics(); initExtras();
-    const saved = store.get('pp_tickets');
-    if (saved && saved.tickets && saved.tickets.length) { S.tickets = saved.tickets; renderTickets(); }
+    // Older versions saved orders and tickets on the phone. Clear them so nothing stale (a failed payment, a cancelled ticket) comes back.
+    ['pp_order', 'pp_tickets', 'pp_keys', 'pp_links'].forEach((k) => store.del(k));
     updateTabs(); view('idle');
     try { await loadEvents(); } catch (e) { $('hero').innerHTML = '<h1>Tickets</h1><p>' + esc(e.message) + '</p>'; $('tiers').innerHTML = '<div class="empty">Couldn\'t load tickets. Pull to refresh.</div>'; }
-    const opened = await openFromLink();
-    if (!opened && S.tickets.length) go(3); // came back to the site → their ticket is right there
-    resume();
-    refreshSaved();
+    await openFromLink();
     setInterval(() => { if (!document.hidden && $('p1').classList.contains('on')) loadEvents().catch(() => {}); }, 60000);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
