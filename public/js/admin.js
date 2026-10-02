@@ -216,7 +216,7 @@ async function loadEvents(){
       +'<div class="row">'+f('ev'+e.id,'Venue',e.venue,'maxlength="160"')+f('edt'+e.id,'Date',e.event_date,'type="date"')+f('etm'+e.id,'Start time',e.event_time,'type="time"')+'</div>'
       +'<div class="err" id="eErr'+e.id+'"></div><div class="ok" id="eOk'+e.id+'" hidden></div>'
       +'<button class="btn sm" style="margin-top:10px" data-act="saveEvent:'+e.id+'">Save event details</button>'
-      +'<h3 style="margin:18px 0 6px;font-size:12px">Ticket order <small>drag &#10303; to rearrange. The top one shows first on the site</small></h3>'
+      +'<h3 style="margin:18px 0 6px;font-size:12px">Ticket order <small>drag &#10303; to rearrange (top shows first). Long-press a ticket to delete it</small></h3>'
       +'<div class="ord" data-event="'+e.id+'">'+e.ticketTypes.map(t=>'<div class="ord-i" data-tid="'+t.id+'"><span class="grip" aria-label="Drag to reorder">&#10303;</span><span class="nm">'+esc(t.name)+'</span><span class="pr">KES '+Number(t.price).toLocaleString()+(t.status!=='ACTIVE'?' · hidden':'')+'</span></div>').join('')+'</div>'
       +'<div class="ok" id="oOk'+e.id+'" hidden></div><div class="err" id="oErr'+e.id+'"></div>'
       +'<h3 style="margin:18px 0 6px;font-size:12px">Tickets &amp; prices <small>new price applies to new orders; unpaid orders keep the price they started with</small></h3>'
@@ -234,7 +234,28 @@ async function loadEvents(){
       try{ await api('/api/admin/ticket-types/reorder',{method:'POST',body:{ids}}); ok('oOk'+id,'Order saved. The site shows it on the next refresh.'); }
       catch(e){ err('oErr'+id,e.message); loadEvents(); }
     }));
+    document.querySelectorAll('.ord[data-event]').forEach(initLongPress);
   }catch(e){}
+}
+
+// Long-press (about 0.6 s) on a ticket row to delete it. Moving the finger, dragging the handle or letting go early cancels.
+function initLongPress(box){
+  let tm=null,x0=0,y0=0,el=null;
+  const stop=()=>{ clearTimeout(tm); tm=null; if(el){ el.classList.remove('lp'); el=null; } };
+  box.addEventListener('pointerdown',e=>{
+    if(e.target.closest('.grip')) return;
+    const it=e.target.closest('.ord-i'); if(!it) return;
+    el=it; x0=e.clientX; y0=e.clientY; it.classList.add('lp');
+    tm=setTimeout(()=>{ const t=it; stop(); if(navigator.vibrate) navigator.vibrate(40); delTicketType(t.dataset.tid,t.querySelector('.nm').textContent); },650);
+  });
+  box.addEventListener('pointermove',e=>{ if(tm && Math.hypot(e.clientX-x0,e.clientY-y0)>10) stop(); });
+  ['pointerup','pointercancel','pointerleave'].forEach(ev=>box.addEventListener(ev,stop));
+  box.addEventListener('contextmenu',e=>e.preventDefault());
+}
+async function delTicketType(id,name){
+  if(!confirm('Delete "'+name+'"?\n\nIf nobody has bought it yet, it is removed completely. If it has sales, it is taken off the site and out of this list, but the orders and money records are kept.')) return;
+  try{ await api('/api/admin/ticket-types/'+id+'/delete',{method:'POST'}); loadEvents(); loadLive(); }
+  catch(e){ alert(e.message); }
 }
 
 // Drag-to-reorder that works with a finger or a mouse. The dragged row follows the pointer; the gold line shows where it will land.

@@ -2,7 +2,7 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cfg = require("../config");
-const { query, audit } = require("../db");
+const { query, tx, audit } = require("../db");
 const { processVerifiedPayment } = require("../payments");
 const U = require("../util");
 
@@ -41,7 +41,7 @@ router.get("/stats", U.wrap(async (req, res) => {
                   COUNT(*) FILTER (WHERE status='CANCELLED')::int AS cancelled FROM tickets`),
     query(`SELECT tt.id, e.name AS event, tt.name, tt.price, tt.quantity_total, tt.quantity_sold, tt.status,
                   COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.ticket_type_id = tt.id AND o.status='PAID'),0)::int AS revenue
-             FROM ticket_types tt JOIN events e ON e.id = tt.event_id ORDER BY e.id, tt.sort_order, tt.price, tt.id`),
+             FROM ticket_types tt JOIN events e ON e.id = tt.event_id WHERE tt.status <> 'DELETED' ORDER BY e.id, tt.sort_order, tt.price, tt.id`),
     query(`SELECT (SELECT COUNT(*) FROM orders WHERE status='EXPIRED' AND payment_started_at IS NOT NULL)::int AS stuck,
                   (SELECT COUNT(*) FROM orders WHERE status='REFUND_REQUIRED')::int AS refunds,
                   (SELECT COUNT(*) FROM payment_transactions WHERE status='DUPLICATE')::int AS duplicates`),
@@ -64,7 +64,7 @@ router.get("/live", U.wrap(async (req, res) => {
              FROM orders WHERE status = 'PAID'`),
     query(`SELECT tt.id, e.name AS event, tt.name, tt.price, tt.quantity_total, tt.quantity_sold, tt.status, tt.requires_pool,
                   COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.ticket_type_id = tt.id AND o.status='PAID'),0)::int AS revenue
-             FROM ticket_types tt JOIN events e ON e.id = tt.event_id WHERE e.status = 'ACTIVE'
+             FROM ticket_types tt JOIN events e ON e.id = tt.event_id WHERE e.status = 'ACTIVE' AND tt.status <> 'DELETED'
             ORDER BY e.id, tt.sort_order, tt.price, tt.id`),
     query(`SELECT p.code, p.kind, p.value, p.max_uses, p.active, p.expires_at,
                   COUNT(o.id) FILTER (WHERE o.status='PAID')::int AS paid_orders,
@@ -275,7 +275,7 @@ router.post("/promos/:id/toggle", U.wrap(async (req, res) => {
 // ── events & ticket types ──────────────────────────────────────────────────
 router.get("/events", U.wrap(async (req, res) => {
   const ev = await query("SELECT id, name, description, venue, event_date::text AS event_date, event_time, status FROM events ORDER BY event_date DESC, id DESC");
-  const tt = await query("SELECT id, event_id, name, description, price, quantity_total, quantity_sold, status, requires_pool, sort_order FROM ticket_types ORDER BY sort_order, price, id");
+  const tt = await query("SELECT id, event_id, name, description, price, quantity_total, quantity_sold, status, requires_pool, sort_order FROM ticket_types WHERE status <> 'DELETED' ORDER BY sort_order, price, id");
   res.json(ev.rows.map((e) => ({ ...e, ticketTypes: tt.rows.filter((t) => t.event_id === e.id) })));
 }));
 
@@ -356,6 +356,26 @@ router.post("/ticket-types/reorder", U.wrap(async (req, res) => {
   );
   await audit("TYPES_REORDERED", "ticket_type", ids.join(","), { ids }, req.ip);
   res.json({ ok: true });
+}));
+
+// Long-press delete. Never used: removed completely. Has orders: archived (gone from the site and admin, money records stay).
+router.post("/ticket-types/:id/delete", U.wrap(async (req, res) => {
+  const id = int(req.params.id, 1, 2147483647, "id");
+  const out = await tx(async (c) => {
+    const t = await c.query("SELECT id, name FROM ticket_types WHERE id = $1 AND status <> 'DELETED' FOR UPDATE", [id]);
+    if (!t.rows[0]) throw new U.HttpError(404, "Ticket not found.");
+    const live = await c.query("SELECT COUNT(*)::int AS c FROM orders WHERE ticket_type_id = $1 AND status IN ('PENDING','PAYMENT_PROCESSING') AND expires_at > now()", [id]);
+    if (live.rows[0].c) throw new U.HttpError(409, "Someone is paying for this ticket right now. Try again in a few minutes.");
+    const had = await c.query("SELECT COUNT(*)::int AS c FROM orders WHERE ticket_type_id = $1", [id]);
+    if (had.rows[0].c) {
+      await c.query("UPDATE ticket_types SET status = 'DELETED' WHERE id = $1", [id]);
+      return { name: t.rows[0].name, mode: "archived" };
+    }
+    await c.query("DELETE FROM ticket_types WHERE id = $1", [id]);
+    return { name: t.rows[0].name, mode: "removed" };
+  });
+  await audit("TYPE_DELETED", "ticket_type", id, out, req.ip);
+  res.json({ ok: true, ...out });
 }));
 
 router.post("/ticket-types/:id/update", U.wrap(async (req, res) => {
