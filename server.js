@@ -58,6 +58,7 @@ app.use("/api/payments/tinypesa/webhook", express.raw({ type: "*/*", limit: "100
 app.use(express.json({ limit: "20kb" }));
 
 app.use("/api/payments/tinypesa", require("./src/routes/webhook"));
+app.use("/api/auth", require("./src/routes/auth"));
 app.use("/api/staff", require("./src/routes/staff"));
 app.use("/api/admin", require("./src/routes/admin"));
 app.use("/api", require("./src/routes/public"));

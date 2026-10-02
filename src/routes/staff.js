@@ -4,17 +4,18 @@ const rateLimit = require("express-rate-limit");
 const cfg = require("../config");
 const { query, audit } = require("../db");
 const U = require("../util");
+const Sess = require("../session");
 
 const router = express.Router();
 router.use(rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests." } }));
 
-// Door staff sign in with STAFF_TOKEN (or the admin token).
-router.use((req, res, next) => {
+// Door staff sign in with STAFF_TOKEN (or the admin token), or with a fingerprint / Face ID session (X-Session).
+router.use(U.wrap(async (req, res, next) => {
   const t = req.get("x-staff-token") || "";
-  const ok = (cfg.staffToken && U.safeEqual(t, cfg.staffToken)) || U.safeEqual(t, cfg.adminToken);
-  if (!ok) return res.status(401).json({ error: "Wrong staff code." });
-  next();
-});
+  if ((cfg.staffToken && U.safeEqual(t, cfg.staffToken)) || U.safeEqual(t, cfg.adminToken)) return next();
+  if (req.get("x-session") && (await Sess.verify(req.get("x-session"), "door"))) return next();
+  res.status(401).json({ error: req.get("x-session") ? "Session ended." : "Wrong staff code." });
+}));
 
 const SELECT = `SELECT t.id, t.ticket_number, t.holder_name, t.holder_phone, t.status, t.used_at, t.qr_version,
                        tt.name AS type_name, tt.description AS type_desc, e.name AS event_name, o.order_number

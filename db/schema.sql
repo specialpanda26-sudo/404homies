@@ -165,3 +165,54 @@ ALTER TABLE tickets              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE webhook_events       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs           ENABLE ROW LEVEL SECURITY;
+
+-- v2.8: fingerprint / Face ID sign-in (WebAuthn) for the admin panel and the door scanner.
+-- Only the PUBLIC key is stored. The fingerprint or face never leaves the phone.
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  id           BIGSERIAL PRIMARY KEY,
+  cred_id      TEXT NOT NULL UNIQUE,
+  public_key   TEXT NOT NULL,
+  alg          INTEGER NOT NULL,
+  counter      BIGINT NOT NULL DEFAULT 0,
+  label        TEXT NOT NULL,
+  scope        TEXT NOT NULL CHECK (scope IN ('admin', 'door')),
+  transports   TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ
+);
+-- One-time links the admin creates so a staff phone can enroll its own fingerprint / Face ID.
+CREATE TABLE IF NOT EXISTS webauthn_invites (
+  id         BIGSERIAL PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  scope      TEXT NOT NULL CHECK (scope IN ('admin', 'door')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- v2.8: referral program. One code per customer phone; free tickets are issued from Admin → Referrals.
+CREATE TABLE IF NOT EXISTS referral_codes (
+  id          BIGSERIAL PRIMARY KEY,
+  code        TEXT NOT NULL UNIQUE,
+  phone       TEXT NOT NULL UNIQUE,
+  holder_name TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS referral_code TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS reward_code   TEXT;                       -- set on a free (reward) order
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_comp       BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS orders_referral_idx ON orders(referral_code) WHERE referral_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS orders_reward_idx   ON orders(reward_code)   WHERE reward_code IS NOT NULL;
+-- Free reward tickets are orders with a total of 0, so the old "total > 0" rule becomes "total >= 0".
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_total_amount_check' AND conrelid = 'orders'::regclass) THEN
+    ALTER TABLE orders DROP CONSTRAINT orders_total_amount_check;
+    ALTER TABLE orders ADD CONSTRAINT orders_total_amount_nonneg CHECK (total_amount >= 0);
+  END IF;
+END $$;
+
+ALTER TABLE webauthn_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE webauthn_invites     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE referral_codes       ENABLE ROW LEVEL SECURITY;

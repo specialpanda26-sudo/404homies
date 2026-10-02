@@ -3,8 +3,11 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const cfg = require("../config");
 const { query, tx, audit } = require("../db");
-const { processVerifiedPayment } = require("../payments");
+const { processVerifiedPayment, remainingStock } = require("../payments");
 const U = require("../util");
+const Sess = require("../session");
+const W = require("../webauthn");
+const R = require("../referral");
 
 const router = express.Router();
 
@@ -12,10 +15,11 @@ const router = express.Router();
 router.use(rateLimit({ windowMs: 60 * 1000, limit: 15, skipSuccessfulRequests: true, requestWasSuccessful: (req, res) => res.statusCode !== 401, standardHeaders: true, legacyHeaders: false, message: { error: "Too many attempts." } }));
 router.use(rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests." } }));
 
-router.use((req, res, next) => {
-  if (!U.safeEqual(req.get("x-admin-token") || "", cfg.adminToken)) return res.status(401).json({ error: "Unauthorized" });
-  next();
-});
+router.use(U.wrap(async (req, res, next) => {
+  if (U.safeEqual(req.get("x-admin-token") || "", cfg.adminToken)) return next();
+  if (req.get("x-session") && (await Sess.verify(req.get("x-session"), "admin"))) return next(); // fingerprint / Face ID
+  return res.status(401).json({ error: "Unauthorized" });
+}));
 
 const bad = (m) => new U.HttpError(400, m);
 function int(v, min, max, label) {
@@ -407,6 +411,115 @@ router.post("/ticket-types/:id/update", U.wrap(async (req, res) => {
   await query(`UPDATE ticket_types SET ${sets.join(", ")} WHERE id = $1`, vals);
   await audit("TYPE_UPDATED", "ticket_type", id, b, req.ip);
   res.json({ ok: true });
+}));
+
+// ── fingerprint / Face ID (enrollment is managed here) ─────────────────────────────
+const bioLabel = (v) => { const l = U.cleanName(v, 40); if (l.length < 2) throw bad("Give this phone a name, e.g. \u201cGate 1 - Brian\u201d."); return l; };
+const bioScope = (v) => { const s = String(v || "").toLowerCase(); if (!["admin", "door"].includes(s)) throw bad("Choose what this phone may open."); return s; };
+
+router.get("/biometric", U.wrap(async (req, res) => {
+  const { rows } = await query("SELECT id, label, scope, created_at, last_used_at FROM webauthn_credentials ORDER BY id");
+  res.json(rows);
+}));
+
+// Enroll THIS phone/computer: the browser pops up its own fingerprint or Face ID prompt.
+router.post("/biometric/register/options", U.wrap(async (req, res) => {
+  const label = bioLabel(req.body?.label);
+  bioScope(req.body?.scope);
+  res.json(W.creationOptions({ rpId: W.site(req).rpId, label, purpose: "reg" }));
+}));
+router.post("/biometric/register/verify", U.wrap(async (req, res) => {
+  const label = bioLabel(req.body?.label), scope = bioScope(req.body?.scope);
+  if ((await query("SELECT COUNT(*)::int AS c FROM webauthn_credentials")).rows[0].c >= 40) throw bad("Too many enrolled phones. Remove one first.");
+  const { origin, rpId } = W.site(req);
+  const k = W.finishRegistration({ credential: req.body?.credential, purpose: "reg", origin, rpId });
+  try {
+    const { rows } = await query(
+      "INSERT INTO webauthn_credentials (cred_id, public_key, alg, counter, label, scope, transports) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+      [k.credId, k.publicKey, k.alg, k.counter, label, scope, k.transports]
+    );
+    await audit("BIOMETRIC_ENROLLED", "credential", rows[0].id, { label, scope, via: "admin" }, req.ip);
+    res.json({ ok: true, id: rows[0].id });
+  } catch (e) {
+    if (e.code === "23505") throw new U.HttpError(409, "This phone is already enrolled.");
+    throw e;
+  }
+}));
+
+// One-time link (15 min) so a STAFF phone can enroll its own fingerprint / Face ID without ever seeing the admin token.
+router.post("/biometric/invite", U.wrap(async (req, res) => {
+  const label = bioLabel(req.body?.label), scope = bioScope(req.body?.scope);
+  const token = require("crypto").randomBytes(18).toString("base64url");
+  await query("INSERT INTO webauthn_invites (token_hash, label, scope, expires_at) VALUES ($1,$2,$3, now() + interval '15 minutes')", [U.sha256(token), label, scope]);
+  await audit("BIOMETRIC_INVITE", "invite", label, { scope }, req.ip);
+  res.json({ link: `${W.site(req).origin}/door?enroll=${token}`, minutes: 15, label });
+}));
+
+router.post("/biometric/:id/revoke", U.wrap(async (req, res) => {
+  const { rows } = await query("DELETE FROM webauthn_credentials WHERE id = $1 RETURNING id, label", [int(req.params.id, 1, 2147483647, "id")]);
+  if (!rows[0]) throw new U.HttpError(404, "Not found.");
+  Sess.forget();
+  await audit("BIOMETRIC_REVOKED", "credential", rows[0].id, { label: rows[0].label }, req.ip);
+  res.json({ ok: true });
+}));
+
+// ── referral program ───────────────────────────────────────────────────────────────
+router.get("/referrals", U.wrap(async (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase().slice(0, 60);
+  const [list, prog] = await Promise.all([
+    query("SELECT code, holder_name, phone, created_at FROM referral_codes ORDER BY created_at DESC LIMIT 1000"),
+    R.progressAll({ query }),
+  ]);
+  const all = list.rows.map((r) => ({ code: r.code, name: r.holder_name, phone: r.phone, createdAt: r.created_at, ...prog.get(r.code) }));
+  const rows = all
+    .filter((r) => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.phone.includes(q.replace(/\D/g, "") || "\u0000"))
+    .sort((a, b) => b.singles + b.couples - (a.singles + a.couples) || String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, 200);
+  res.json({
+    tiers: R.TIERS,
+    summary: {
+      referrers: all.length, active: all.filter((r) => r.singles + r.couples > 0).length,
+      tickets: all.reduce((n, r) => n + r.singles + r.couples, 0),
+      earned: all.reduce((n, r) => n + r.earned, 0), issued: all.reduce((n, r) => n + r.issued, 0), waiting: all.reduce((n, r) => n + r.available, 0),
+    },
+    rows,
+  });
+}));
+
+// Give a referrer the free ticket(s) they earned: one reward ticket per press, from stock, as a KES 0 paid order.
+router.post("/referrals/:code/reward", U.wrap(async (req, res) => {
+  const code = R.clean(req.params.code);
+  const out = await tx(async (c) => {
+    const ref = (await c.query("SELECT * FROM referral_codes WHERE code = $1 FOR UPDATE", [code])).rows[0];
+    if (!ref) throw new U.HttpError(404, "Referral code not found.");
+    const prog = await R.progress(c, code);
+    if (prog.available < 1) throw new U.HttpError(409, "No free ticket is waiting for this code.");
+    const last = (await c.query(
+      "SELECT event_id, holder_email FROM orders WHERE holder_phone = $1 AND status = 'PAID' AND is_comp = FALSE ORDER BY paid_at DESC NULLS LAST, id DESC LIMIT 1", [ref.phone]
+    )).rows[0];
+    if (!last) throw new U.HttpError(409, "This customer has no paid order to attach the ticket to.");
+    const tt = (await c.query(
+      `SELECT * FROM ticket_types WHERE event_id = $1 AND status = 'ACTIVE' AND requires_pool = FALSE AND name NOT ILIKE '%couple%'
+        ORDER BY sort_order, price, id LIMIT 1 FOR UPDATE`, [last.event_id]
+    )).rows[0];
+    if (!tt) throw new U.HttpError(409, "No single ticket type is on sale for that event.");
+    if ((await remainingStock(c, tt.id)) < 1) throw new U.HttpError(409, `${tt.name} is sold out. Add more stock in Events, then try again.`);
+    const orderNumber = U.generateOrderNumber(), ticketNumber = U.generateTicketNumber();
+    const o = (await c.query(
+      `INSERT INTO orders (order_number, access_key_hash, holder_name, holder_email, holder_phone, event_id, ticket_type_id, quantity,
+                           unit_price, subtotal_amount, discount_amount, total_amount, status, attendee_names, expires_at, paid_at, is_comp, reward_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,1,0,0,0,0,'PAID','[]'::jsonb, now(), now(), TRUE, $8) RETURNING id`,
+      [orderNumber, U.sha256(U.generateAccessKey()), ref.holder_name, last.holder_email || "", ref.phone, last.event_id, tt.id, code]
+    )).rows[0];
+    await c.query(
+      "INSERT INTO tickets (ticket_number, order_id, event_id, type_id, holder_name, holder_email, holder_phone) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+      [ticketNumber, o.id, last.event_id, tt.id, ref.holder_name, last.holder_email || "", ref.phone]
+    );
+    await c.query("UPDATE ticket_types SET quantity_sold = quantity_sold + 1 WHERE id = $1", [tt.id]);
+    await audit("REFERRAL_REWARD", "referral", code, { orderNumber, ticketNumber, type: tt.name }, req.ip, c);
+    return { orderNumber, ticketNumber, type: tt.name, name: ref.holder_name, phone: ref.phone, link: U.linkToken(orderNumber) };
+  });
+  res.json(out);
 }));
 
 module.exports = router;

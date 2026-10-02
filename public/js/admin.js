@@ -9,10 +9,13 @@ const err = (id, msg, okId) => { const e=$(id); e.textContent=msg||''; e.style.d
 const ok = (id, msg, errId) => { const e=$(id); e.textContent=msg; e.hidden=false; if(errId) err(errId,''); };
 const show = (id, on) => { const el=$(id); if(el) el.hidden=!on; };
 let TOKEN = '';
+let SESSION = '';
+const authH = () => SESSION ? {'X-Session':SESSION} : {'X-Admin-Token':TOKEN};
+const authed = () => !!(TOKEN || SESSION);
 let refreshTimer;
 
 async function api(path, opts){
-  opts=opts||{}; const init={method:opts.method||'GET',headers:{'X-Admin-Token':TOKEN}};
+  opts=opts||{}; const init={method:opts.method||'GET',headers:authH()};
   if(opts.body!==undefined){init.headers['Content-Type']='application/json';init.body=JSON.stringify(opts.body);}
   const r = await fetch(path, init);
   let d={}; try{d=await r.json();}catch(e){}
@@ -24,12 +27,23 @@ async function api(path, opts){
 async function login(){
   const t = $('tok').value.trim(); if(!t){ err('loginErr','Enter the admin token.'); return; }
   $('loginBtn').disabled=true;
-  TOKEN=t; // must be set BEFORE the check request, api() reads it for the header
+  TOKEN=t; SESSION=''; // must be set BEFORE the check request, api() reads it for the header
   try{ await api('/api/admin/stats'); err('loginErr',''); $('loginWrap').hidden=true; show('appWrap',true); loadAll(); }
   catch(e){ TOKEN=''; err('loginErr', e.message); }
   finally{ $('loginBtn').disabled=false; }
 }
-function logout(){ TOKEN=''; show('appWrap',false); $('loginWrap').hidden=false; $('tok').value=''; $('loginBtn').disabled=false; clearInterval(refreshTimer); }
+// Fingerprint / Face ID: the phone shows its own prompt (face unlock opens the front camera by itself).
+async function bioLogin(auto){
+  const b=$('bioBtn'); b.disabled=true; err('loginErr',''); show('bioWait',true);
+  try{
+    const r = await Bio.login('admin');
+    SESSION=r.token; TOKEN='';
+    try{ localStorage.setItem('bio_admin','1'); }catch(e){}
+    await api('/api/admin/stats'); $('loginWrap').hidden=true; show('appWrap',true); loadAll();
+  }catch(e){ SESSION=''; if(!auto) err('loginErr', e.message); }
+  show('bioWait',false); b.disabled=false;
+}
+function logout(){ TOKEN=''; SESSION=''; show('appWrap',false); $('loginWrap').hidden=false; $('tok').value=''; $('loginBtn').disabled=false; clearInterval(refreshTimer); }
 
 // ── tabs ──
 document.querySelectorAll('.navbtn').forEach(btn => btn.addEventListener('click',()=>{
@@ -41,6 +55,8 @@ document.querySelectorAll('.navbtn').forEach(btn => btn.addEventListener('click'
   if(btn.dataset.tab==='promos') loadPromos();
   if(btn.dataset.tab==='events') loadEvents();
   if(btn.dataset.tab==='photos') loadPhotos();
+  if(btn.dataset.tab==='referrals') loadReferrals();
+  if(btn.dataset.tab==='security') loadBio();
 }));
 
 // ── stats ──
@@ -125,7 +141,7 @@ async function searchOrders(){
 
 async function dlCsv(path, name){
   try{
-    const r = await fetch(path,{headers:{'X-Admin-Token':TOKEN}});
+    const r = await fetch(path,{headers:authH()});
     if(!r.ok){ let d={}; try{d=await r.json();}catch(e){} throw new Error(d.error||'Export failed ('+r.status+')'); }
     const url = URL.createObjectURL(await r.blob());
     const a = document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click();
@@ -337,7 +353,7 @@ async function uploadPhotos(files){
     for(const f of files){
       btn.textContent='Uploading '+(done+1)+' of '+files.length+'…';
       const blob=await shrink(f);
-      const r=await fetch('/api/admin/gallery',{method:'POST',headers:{'X-Admin-Token':TOKEN,'Content-Type':'image/jpeg'},body:blob});
+      const r=await fetch('/api/admin/gallery',{method:'POST',headers:Object.assign({'Content-Type':'image/jpeg'},authH()),body:blob});
       let d={}; try{d=await r.json();}catch(e){}
       if(!r.ok) throw new Error(d.error||'Upload failed ('+r.status+')');
       done++;
@@ -366,9 +382,88 @@ async function reissue(){
   }catch(e){ err('riErr',e.message,'riOk'); }
 }
 
+// ── referrals ──
+const refLine = r => {
+  const t=r.target;
+  return r.singles+' / '+t.singles+' singles · '+r.couples+' / '+t.couples+' couple'+(t.couples===1?'':'s');
+};
+async function loadReferrals(){
+  err('rfErr','');
+  try{
+    const q=$('rfQ').value.trim();
+    const d = await api('/api/admin/referrals'+(q?'?q='+encodeURIComponent(q):''));
+    const sm=d.summary;
+    $('rfRules').textContent = d.tiers.map(t=>t.singles+' singles + '+t.couples+' couple'+(t.couples===1?'':'s')+' = '+t.free+' free').join(' · ');
+    const tile=(l,v,sub,cls)=>'<div class="stat '+(cls||'')+'"><div class="lbl">'+l+'</div><div class="val">'+v+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>';
+    $('rfStats').innerHTML = tile('Referrers',sm.referrers,sm.active+' with sales')+tile('Tickets brought in',sm.tickets,'via referral codes','good')
+      +tile('Free tickets earned',sm.earned,sm.issued+' given out')+tile('Waiting to give',sm.waiting,sm.waiting?'tap Give free ticket':'all clear',sm.waiting?'warn':'');
+    $('rfList').innerHTML = d.rows.map(r=>{
+      const nxt = r.next ? 'Next reward: '+r.next.free+' free ticket'+(r.next.free===1?'':'s')+' at '+r.next.singles+' singles + '+r.next.couples+' couple'+(r.next.couples===1?'':'s') : 'Every reward reached';
+      return '<div class="tier-row" style="display:block;margin-bottom:9px">'
+        +'<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>'+esc(r.name)+'</b> <span class="mono">'+esc(r.code)+'</span><div class="meta">'+esc(r.phone)+'</div></div>'
+        +'<div style="text-align:right"><b style="font-size:18px">'+r.people+'</b> <span class="meta">friend'+(r.people===1?'':'s')+' used it</span><div class="meta">'+refLine(r)+'</div></div></div>'
+        +'<div class="bar2" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+r.pct+'"><i style="width:'+r.pct+'%"></i></div>'
+        +'<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;margin-top:7px">'
+        +'<span class="meta">'+nxt+' · '+r.pct+'% · earned '+r.earned+' · given '+r.issued+'</span>'
+        +(r.available>0?'<button class="btn sm" data-act="giveReward:'+esc(r.code)+'">Give free ticket ('+r.available+' waiting)</button>':'')
+        +'</div></div>';
+    }).join('') || '<div class="empty">No referral codes yet. They appear once customers have a paid order.</div>';
+  }catch(e){ err('rfErr',e.message); }
+}
+async function giveReward(code){
+  if(!confirm('Give 1 free ticket for referral code '+code+'?\n\nIt is taken from your ticket stock.')) return;
+  err('rfErr',''); $('rfOk').hidden=true;
+  try{
+    const r = await api('/api/admin/referrals/'+encodeURIComponent(code)+'/reward',{method:'POST'});
+    const tap = location.origin+'/?t='+encodeURIComponent(r.link);
+    const msg = 'Hi '+r.name+', thank you for bringing your friends! \u{1F381} Your free ticket is ready: '+tap;
+    const o=$('rfOk'); o.hidden=false;
+    o.innerHTML = 'Free '+esc(r.type)+' ticket '+esc(r.ticketNumber)+' created for '+esc(r.name)+'. It already shows on their ticket screen. '
+      +'<a target="_blank" rel="noopener" href="https://wa.me/'+encodeURIComponent(r.phone)+'?text='+encodeURIComponent(msg)+'">Tell them on WhatsApp</a>';
+    loadReferrals(); loadStats();
+  }catch(e){ err('rfErr',e.message); }
+}
+
+// ── fingerprint / Face ID ──
+async function loadBio(){
+  const can = window.Bio ? await Bio.supported() : false;
+  $('bioSupport').textContent = can ? '\u2705 This phone supports fingerprint / Face ID.' : '\u26A0 This browser can\'t use fingerprint / Face ID here. It needs a phone or laptop with a fingerprint, Face ID or screen lock set up, and the https address of the site.';
+  $('bioEnrollBtn').disabled = !can;
+  try{
+    const rows = await api('/api/admin/biometric');
+    $('bioList').innerHTML = rows.map(r=>'<div class="tier-row"><div><b>'+esc(r.label)+'</b><div class="meta">'+(r.scope==='admin'?'Admin panel + door scanner':'Door scanner only')+' · added '+dt(r.created_at)+' · last used '+(r.last_used_at?ago(r.last_used_at):'never')+'</div></div>'
+      +'<button class="btn sm danger" data-act="bioRevoke:'+r.id+'">Remove</button></div>').join('') || '<div class="empty">Nobody enrolled yet.</div>';
+  }catch(e){ $('bioList').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
+}
+async function bioEnroll(){
+  err('bioErr','',  'bioOk'); const label=$('bioLabel').value.trim(); const scope=$('bioScope').value;
+  const b=$('bioEnrollBtn'); b.disabled=true;
+  try{
+    await Bio.enrollAdmin(label, scope, authH());
+    try{ localStorage.setItem('bio_admin','1'); localStorage.setItem('bio_door','1'); }catch(e){}
+    ok('bioOk','Done. Next time, open this page and use your fingerprint / Face ID.','bioErr'); $('bioLabel').value=''; loadBio();
+  }catch(e){ err('bioErr',e.message,'bioOk'); }
+  b.disabled=false;
+}
+async function bioInvite(){
+  err('invErr',''); $('invOut').hidden=true;
+  try{
+    const r = await api('/api/admin/biometric/invite',{method:'POST',body:{label:$('invLabel').value.trim(),scope:$('invScope').value}});
+    $('invOut').hidden=false; $('invLink').value=r.link;
+    $('invWa').href='https://wa.me/?text='+encodeURIComponent('Hi '+r.label+', open this on YOUR phone to set up fingerprint / Face ID for the door scanner (valid '+r.minutes+' min): '+r.link);
+    const cv=$('invQr'), c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height);
+    if(typeof qrcode==='function'){ const q=qrcode(0,'M'); q.addData(r.link); q.make(); const n=q.getModuleCount(), cell=Math.floor(cv.width/(n+4)), off=Math.floor((cv.width-cell*n)/2); c.fillStyle='#000'; for(let y=0;y<n;y++)for(let x=0;x<n;x++) if(q.isDark(y,x)) c.fillRect(off+x*cell,off+y*cell,cell,cell); }
+  }catch(e){ err('invErr',e.message); }
+}
+async function bioRevoke(id){
+  if(!confirm('Remove this phone? It will no longer unlock the panel or the scanner.')) return;
+  try{ await api('/api/admin/biometric/'+id+'/revoke',{method:'POST'}); loadBio(); }catch(e){ alert(e.message); }
+}
+function invCopy(){ const i=$('invLink'); i.select(); try{ navigator.clipboard.writeText(i.value); }catch(e){ document.execCommand('copy'); } }
+
 // ── global click ──
 const acts={
-  login, logout, pickPhotos:()=>$('phFile').click(), searchOrders, dlOrders, dlAttendees, searchTickets,
+  login, logout, bioLogin:()=>bioLogin(false), loadReferrals, bioEnroll, bioInvite, invCopy, pickPhotos:()=>$('phFile').click(), searchOrders, dlOrders, dlAttendees, searchTickets,
   createPromo, createEvent, createType, manualConfirm, reissue, loadReview,
 };
 document.addEventListener('click', e=>{
@@ -381,6 +476,8 @@ document.addEventListener('click', e=>{
   else if(fn==='saveEvent') saveEvent(args[0]);
   else if(fn==='saveType') saveType(args[0]);
   else if(fn==='delPhoto') delPhoto(args[0]);
+  else if(fn==='giveReward') giveReward(args[0]);
+  else if(fn==='bioRevoke') bioRevoke(args[0]);
   else if(fn==='cancel') setTicketStatus(args[0],'CANCELLED');
   else if(fn==='unvoid') setTicketStatus(args[0],'VALID');
   else if(fn==='ri') reissueQR(args[0]);
@@ -388,6 +485,15 @@ document.addEventListener('click', e=>{
 });
 [$('oQ'),$('tkQ')].forEach(inp=>inp&&inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.target.id==='oQ'?searchOrders():searchTickets();}}));
 $('tok').addEventListener('keydown', e=>{ if(e.key==='Enter') login(); });
+$('rfQ').addEventListener('keydown', e=>{ if(e.key==='Enter') loadReferrals(); });
+
+// Show the fingerprint / Face ID button when the phone can do it; if this phone was enrolled before, ask straight away.
+(async()=>{
+  if(!window.Bio || !(await Bio.supported())) return;
+  $('bioBox').hidden=false;
+  let was=false; try{ was=localStorage.getItem('bio_admin')==='1'; }catch(e){}
+  if(was) bioLogin(true);
+})();
 
 async function loadAll(){
   loadLive();
@@ -396,7 +502,7 @@ async function loadAll(){
   searchOrders();
   clearInterval(refreshTimer);
   refreshTimer = setInterval(()=>{ if(!document.hidden) loadLive(); }, 10000);
-  setInterval(()=>{ if(!document.hidden && TOKEN){ loadStats(); loadAudit(); } }, 30000);
+  setInterval(()=>{ if(!document.hidden && authed()){ loadStats(); loadAudit(); } }, 30000);
 }
 
 })();

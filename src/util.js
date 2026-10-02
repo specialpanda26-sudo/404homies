@@ -101,6 +101,6 @@ const toCsv = (rows, cols) =>
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 module.exports = {
-  HttpError, normalizePhone, generateOrderNumber, generateTicketNumber, generateAccessKey, sha256,
+  HttpError, normalizePhone, generateOrderNumber, generateTicketNumber, generateAccessKey, sha256, randomCode,
   safeEqual, qrFor, qrSignature, linkToken, parseLinkToken, parseTicketCode, extractCallback, EMAIL_RE, cleanName, toCsv, wrap,
 };

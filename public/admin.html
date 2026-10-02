@@ -114,6 +114,12 @@ input::placeholder{color:rgba(240,232,216,.3)}
 <!-- ── LOGIN ── -->
 <div id="loginWrap">
   <h2>Admin login</h2>
+  <div id="bioBox" hidden>
+    <button type="button" class="btn" style="width:100%" id="bioBtn" data-act="bioLogin">🔐 Unlock with fingerprint / Face ID</button>
+    <p class="note" id="bioWait" hidden style="text-align:center;color:var(--gold2)">Waiting for your phone&hellip; place your finger on the sensor (Samsung: the side button) or look at the front camera.</p>
+    <p class="note" style="text-align:center">Your phone shows its own fingerprint prompt, or scans your face with the front camera.</p>
+    <p class="note" style="text-align:center;margin:12px 0 0">— or use the admin token —</p>
+  </div>
   <label for="tok">Admin token</label>
   <input id="tok" type="password" autocomplete="current-password" placeholder="Paste your ADMIN_TOKEN">
   <div class="err" id="loginErr"></div>
@@ -148,6 +154,8 @@ input::placeholder{color:rgba(240,232,216,.3)}
       <button class="navbtn" data-tab="promos">Promo codes</button>
       <button class="navbtn" data-tab="events">Events</button>
       <button class="navbtn" data-tab="photos">Photos</button>
+      <button class="navbtn" data-tab="referrals">Referrals</button>
+      <button class="navbtn" data-tab="security">Security 🔐</button>
       <button class="navbtn" data-tab="manual">Manual confirm</button>
     </div>
 
@@ -304,6 +312,61 @@ input::placeholder{color:rgba(240,232,216,.3)}
       </div>
     </div>
 
+    <div id="referrals" class="tabpanel" hidden>
+      <div class="section">
+        <h3>Referral program <small id="rfRules"></small></h3>
+        <div class="lgrid" id="rfStats"></div>
+        <div class="row" style="margin-bottom:12px">
+          <div><label for="rfQ">Search</label><input id="rfQ" placeholder="name, phone or code…"></div>
+          <div style="flex:0"><button class="btn sm" data-act="loadReferrals">Search</button></div>
+        </div>
+        <div class="err" id="rfErr"></div>
+        <div class="ok" id="rfOk" hidden></div>
+        <div id="rfList"><div class="empty">Loading…</div></div>
+        <p class="note">Every customer gets a code on their ticket screen after their first paid order. Only <b>paid</b> orders count. Pool-party add-ons and reward tickets are ignored, and a customer can't use their own code. Tap <b>Give free ticket</b> once a reward is earned: it takes one ticket from stock and the customer sees it on their ticket screen.</p>
+      </div>
+    </div>
+
+    <div id="security" class="tabpanel" hidden>
+      <div class="section" style="max-width:600px">
+        <h3>Fingerprint / Face ID sign-in</h3>
+        <p class="note" style="margin:0">Enrolled phones can open the admin panel (and the door scanner) with the phone's own fingerprint or Face ID. Your fingerprint and face never leave the phone. Only a public key is stored here. The admin token and staff code keep working as a backup.</p>
+        <p class="note" id="bioSupport"></p>
+      </div>
+      <div class="section" style="max-width:600px">
+        <h3>Step 1 &middot; Set up the fingerprint / face on the phone <small>one time, in the phone's own settings</small></h3>
+        <p class="note" style="margin:0"><b>Samsung / Android:</b> Settings &rarr; Biometrics and security &rarr; Fingerprints (and Face recognition). Add the fingerprint, as in the Samsung setup screens.<br><b>iPhone:</b> Settings &rarr; Face ID &amp; Passcode.</p>
+        <p class="note"><b>Good to know:</b> Samsung's <i>Face recognition</i> is rated &ldquo;less secure&rdquo;, so Chrome does not allow it for websites. On a Samsung phone the website will ask for the <b>fingerprint</b> (or the phone's PIN/pattern). Face ID on iPhone and face unlock on Pixel 8 or newer work fine. Anyone whose fingerprint is saved on this phone can unlock the panel, so only save trusted people's fingerprints on it.</p>
+      </div>
+      <div class="section" style="max-width:600px">
+        <h3>Step 2 &middot; Enroll this phone</h3>
+        <label for="bioLabel">Name for this phone</label><input id="bioLabel" maxlength="40" placeholder="e.g. Henry's phone">
+        <label for="bioScope">It can open</label>
+        <select id="bioScope"><option value="admin">Admin panel + door scanner</option><option value="door">Door scanner only</option></select>
+        <div class="err" id="bioErr"></div><div class="ok" id="bioOk" hidden></div>
+        <button type="button" class="btn" style="margin-top:12px" id="bioEnrollBtn" data-act="bioEnroll">Enroll fingerprint / Face ID</button>
+      </div>
+      <div class="section" style="max-width:600px">
+        <h3>Enroll a staff phone <small>one-time link, valid 15 minutes</small></h3>
+        <p class="note" style="margin:0">The staff member opens the link on their own phone and gives their fingerprint or face. They never see the admin token.</p>
+        <div class="row">
+          <div><label for="invLabel">Staff name</label><input id="invLabel" maxlength="40" placeholder="e.g. Gate 1 - Brian"></div>
+          <div><label for="invScope">It can open</label><select id="invScope"><option value="door">Door scanner only</option><option value="admin">Admin panel + door scanner</option></select></div>
+        </div>
+        <div class="err" id="invErr"></div>
+        <button type="button" class="btn" style="margin-top:12px" data-act="bioInvite">Create enrollment link</button>
+        <div id="invOut" hidden style="margin-top:14px">
+          <canvas id="invQr" width="220" height="220" style="background:#fff;border-radius:10px;max-width:100%"></canvas>
+          <label for="invLink">Link</label><input id="invLink" readonly>
+          <div class="actions" style="margin-top:10px"><button type="button" class="btn sm" data-act="invCopy">Copy link</button><a class="btn sm ghost" id="invWa" target="_blank" rel="noopener" href="#">Send on WhatsApp</a></div>
+        </div>
+      </div>
+      <div class="section" style="max-width:600px">
+        <h3>Enrolled phones</h3>
+        <div id="bioList"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+
     <div id="manual" class="tabpanel" hidden>
       <div class="section" style="max-width:500px">
         <h3>Manually confirm a payment</h3>
@@ -333,6 +396,8 @@ input::placeholder{color:rgba(240,232,216,.3)}
   </div><!-- .main -->
 </div><!-- #appWrap -->
 
+<script src="/vendor/qrcode.min.js" defer></script>
+<script src="/js/bio.js" defer></script>
 <script src="/js/admin.js" defer></script>
 </body>
 </html>

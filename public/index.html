@@ -82,6 +82,10 @@
     </div>
     <div class="err" id="promoErr"></div>
     <div class="note" id="promoOk" style="text-align:left;margin-top:6px"></div>
+    <label for="ref">Friend's referral code <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+    <input id="ref" autocomplete="off" autocapitalize="characters" maxlength="24" placeholder="e.g. JANE-K7M2" style="font-family:ui-monospace,Menlo,monospace">
+    <div class="err" id="refErr"></div>
+    <div class="note" id="refOk" style="text-align:left;margin-top:6px"></div>
     <label for="mp">M-Pesa phone number</label>
     <input id="mp" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678">
     <p class="note" style="text-align:left;margin-top:10px">We'll send an M-Pesa prompt to this number. Enter your PIN on your phone to confirm.</p>
@@ -115,6 +119,19 @@
         <a class="btn" id="grpLink" href="#" target="_blank" rel="noopener">Join WhatsApp group</a>
       </div>
       <div id="tkList"></div>
+      <div class="ref" id="refCard" hidden>
+        <h3>Bring friends, get free tickets</h3>
+        <p class="refsub" id="refRules"></p>
+        <div class="refcode"><b id="refCode" aria-label="Your referral code">&mdash;</b><button class="btn ghost" type="button" data-act="refCopy">Copy</button></div>
+        <div class="refbar" id="refBar" role="progressbar" aria-label="Referral progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="refFill"></i></div>
+        <div class="refmeta"><span id="refTxt"></span><b id="refPct"></b></div>
+        <div class="refchips" id="refTiers"></div>
+        <div class="refmsg" id="refMsg" hidden></div>
+        <div class="btns2">
+          <button class="btn" type="button" data-act="refShare">Share on WhatsApp</button>
+          <button class="btn ghost" type="button" data-act="refRefresh" id="refRefreshBtn">Refresh progress</button>
+        </div>
+      </div>
       <p class="savehint"><b>Save it before you leave home.</b> Tap Download ticket, then choose Save to Photos (or Save Image) so your QR opens even with no signal.</p>
       <div class="btns2">
         <button class="btn ghost" type="button" data-act="ics">Add to calendar</button>

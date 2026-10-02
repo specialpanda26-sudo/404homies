@@ -5,6 +5,23 @@ Stack: **Node.js + Express** (backend) · **Supabase Postgres** (database) · **
 
 ---
 
+## v2.8 — fingerprint / Face ID sign-in + referral program
+
+**Fingerprint / Face ID for `/admin` and `/door`**
+- The login screens get an **Unlock with fingerprint / Face ID** button. The phone shows its **own** prompt: the fingerprint sensor on phones that have one, and **Face ID / face unlock (which opens the front camera by itself)** on phones that have that. The website never sees the camera, a fingerprint or a face. It only receives a signed "the owner unlocked this phone" (WebAuthn). A phone that was enrolled asks for its fingerprint/face as soon as the page opens.
+- **Enrollment is done in Admin → Security 🔐**:
+  - *Enroll this phone*: name it, choose **Admin panel + door scanner** or **Door scanner only**, and give your fingerprint/face.
+  - *Enroll a staff phone*: type the staff name and press **Create enrollment link**. Send the link (or let them scan its QR) to the staff phone. It works once, for 15 minutes, and the staff member never sees the admin token. After enrolling, that phone opens `/door` with a fingerprint/face.
+  - *Enrolled phones*: see when each was last used and **Remove** one (it is locked out within seconds). Lost phone → remove it.
+- `ADMIN_TOKEN` and `STAFF_TOKEN` keep working as a backup. Nothing new to configure. Needs **https** (Render has it) and a phone with a fingerprint, Face ID or screen lock set up. Open the site in Chrome/Safari, not inside Instagram/WhatsApp's built-in browser.
+- Only a **public key** is stored (`webauthn_credentials`). Verification uses Node's built-in crypto, so there is no new npm package.
+
+**Referral program**
+- After a customer's first paid order, the **Your ticket** screen shows their personal code (e.g. `JANE-K7M2`), a **progress bar**, a Copy button and **Share on WhatsApp** (the shared link fills the code in at checkout; the checkout has a new *Friend's referral code* box).
+- Rules (edit `TIERS` in `src/referral.js` to change them): friends' **paid** tickets count toward **5 singles + 1 couple = 1 free ticket** and **10 singles + 2 couples = 2 free tickets**. A ticket type counts as a couple when its name contains "couple". Pool-party add-on tickets and reward tickets don't count, and you can't use your own code.
+- **Admin → Referrals** shows every referrer with the same progress bar, how many friends used the code, and a **Give free ticket** button once a reward is earned. It takes one single ticket from stock (as a KES 0 paid order), shows up on the customer's ticket screen, and gives you a WhatsApp message to tell them.
+- Schema changes run automatically on boot: `referral_codes`, `webauthn_credentials`, `webauthn_invites`, and `orders.referral_code / reward_code / is_comp` (the `total_amount > 0` rule becomes `>= 0` so free tickets can exist).
+
 ## v2.4 — look-and-feel additions (all free, same gold theme)
 
 - **How it works**, **trust badges**, **FAQ accordion**, **skeleton loading**, **live "sold / left" bar**, **sticky "Get tickets" bar**, **gold shimmer** (off for reduced-motion), **confetti** on ticket issue, and a **Save to Photos** hint on the ticket screen.

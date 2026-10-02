@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const setErr = (id, m) => { const e = $(id); e.textContent = m || ''; e.style.display = m ? 'block' : 'none'; };
-  const S = { staff: '', stream: null, timer: null, cv: null, busy: false, lastCode: '', lastAt: 0, local: 0, audio: null, det: null, wake: null };
+  const S = { staff: '', session: '', stream: null, timer: null, cv: null, busy: false, lastCode: '', lastAt: 0, local: 0, audio: null, det: null, wake: null };
 
   async function api(path, opts) {
     opts = opts || {};
@@ -15,6 +15,10 @@
     if (!r.ok) { const er = new Error(d.error || 'Request failed'); er.status = r.status; throw er; }
     return d;
   }
+
+  const authH = () => (S.session ? { 'X-Session': S.session } : { 'X-Staff-Token': S.staff });
+  const authed = () => !!(S.session || S.staff);
+  const AGAIN = 'Session ended \u2014 unlock again.';
 
   const beep = (freq, ms, delay) => {
     try {
@@ -32,11 +36,49 @@
     if (!t) { setErr('loginErr', 'Enter the staff code.'); return; }
     try {
       const sum = await api('/api/staff/summary', { headers: { 'X-Staff-Token': t } });
-      S.staff = t; try { sessionStorage.setItem('pp_staff', t); } catch (e) { /* ignore */ }
+      S.staff = t; S.session = ''; try { sessionStorage.setItem('pp_staff', t); } catch (e) { /* ignore */ }
       setErr('loginErr', ''); $('tok').value = ''; showApp(true); counts(sum);
     } catch (e) { setErr('loginErr', e.message); try { sessionStorage.removeItem('pp_staff'); } catch (x) { /* ignore */ } }
   }
-  function logout() { S.staff = ''; camOff(); try { sessionStorage.removeItem('pp_staff'); } catch (e) { /* ignore */ } showApp(false); }
+
+  /* Fingerprint / Face ID: the phone shows its own prompt (face unlock opens the camera by itself). */
+  function openWithSession(token, sum) {
+    S.session = token; S.staff = ''; try { sessionStorage.setItem('pp_staff_sess', token); localStorage.setItem('bio_door', '1'); } catch (e) { /* ignore */ }
+    setErr('loginErr', ''); showApp(true); counts(sum);
+  }
+  async function bioLogin(auto) {
+    const b = $('bioBtn'); b.disabled = true; setErr('loginErr', ''); $('bioWait').hidden = false;
+    try {
+      const r = await Bio.login('door');
+      const sum = await api('/api/staff/summary', { headers: { 'X-Session': r.token } });
+      openWithSession(r.token, sum);
+    } catch (e) { if (!auto) setErr('loginErr', e.message); }
+    $('bioWait').hidden = true; b.disabled = false;
+  }
+  function logout() {
+    S.staff = ''; S.session = ''; camOff();
+    try { sessionStorage.removeItem('pp_staff'); sessionStorage.removeItem('pp_staff_sess'); } catch (e) { /* ignore */ }
+    showApp(false);
+  }
+
+  /* Staff phone enrolling from the admin's one-time link: /door?enroll=... */
+  async function enroll() {
+    const b = $('enrollBtn'); b.disabled = true; setErr('enrollErr', '');
+    try {
+      const r = await Bio.enrollInvite(S.invite);
+      try { history.replaceState(null, '', '/door'); } catch (e) { /* ignore */ }
+      const sum = await api('/api/staff/summary', { headers: { 'X-Session': r.token } });
+      $('enroll').classList.remove('on'); openWithSession(r.token, sum);
+    } catch (e) { setErr('enrollErr', e.message); b.disabled = false; }
+  }
+  async function startEnroll(token) {
+    S.invite = token; $('login').classList.remove('on'); $('enroll').classList.add('on');
+    if (!(await Bio.supported())) {
+      $('enrollTxt').textContent = 'This phone has no fingerprint or Face ID ready. Turn one on in the phone settings (and open this link in Chrome or Safari), then reload.';
+      $('enrollBtn').hidden = true; return;
+    }
+    $('enrollTxt').textContent = 'Tap the button, then give your fingerprint or look at the camera when the phone asks. After that you can open the scanner with just your fingerprint or face.';
+  }
 
   /* Keep the screen awake while scanning, otherwise the phone sleeps mid-queue and the camera stops. */
   async function lockScreen() {
@@ -100,7 +142,7 @@
     S.lastCode = code; S.lastAt = Date.now(); S.busy = true;
     try {
       const admit = forceAdmit || $('admitMode').checked;
-      const r = await api('/api/staff/' + (admit ? 'admit' : 'check'), { method: 'POST', headers: { 'X-Staff-Token': S.staff }, body: { code } });
+      const r = await api('/api/staff/' + (admit ? 'admit' : 'check'), { method: 'POST', headers: authH(), body: { code } });
       const who = (r.holder ? r.holder + ' \u00b7 ' : '') + (r.type || '') + (r.typeDesc ? ' (' + r.typeDesc.split('\u00b7')[0].trim() + ')' : '');
       if (r.result === 'ADMIT') { verdict('ok', 'ADMIT', who); S.local++; logScan(code, true, 'admitted'); const n = $('cAdm'); n.textContent = +n.textContent + 1; }
       else if (r.result === 'VALID') { verdict('ok', 'VALID', who + ' \u2014 not admitted yet'); logScan(code, true, 'valid'); }
@@ -110,7 +152,7 @@
       counts();
       return true;
     } catch (e) {
-      if (e.status === 401) { logout(); setErr('loginErr', 'Session ended \u2014 enter the staff code again.'); }
+      if (e.status === 401) { logout(); setErr('loginErr', AGAIN); }
       else verdict('bad', e.network ? 'NO CONNECTION' : 'ERROR', e.message);
       return false;
     } finally { setTimeout(() => { S.busy = false; }, 900); }
@@ -131,11 +173,11 @@
   }
   function doSearch() {
     const q = $('srch').value.trim();
-    if (q.length < 3 || !S.staff) { renderResults(null); return; }
+    if (q.length < 3 || !authed()) { renderResults(null); return; }
     const my = ++srchSeq;
-    api('/api/staff/search?q=' + encodeURIComponent(q), { headers: { 'X-Staff-Token': S.staff } })
+    api('/api/staff/search?q=' + encodeURIComponent(q), { headers: authH() })
       .then((rows) => { if (my === srchSeq) renderResults(rows); })
-      .catch((e) => { if (e.status === 401) { logout(); setErr('loginErr', 'Session ended \u2014 enter the staff code again.'); } });
+      .catch((e) => { if (e.status === 401) { logout(); setErr('loginErr', AGAIN); } });
   }
   $('srch').addEventListener('input', () => { clearTimeout(srchTimer); srchTimer = setTimeout(doSearch, 300); });
 
@@ -144,7 +186,7 @@
     if (await onCode(ticketNumber, true, true)) { $('srch').value = ''; renderResults(null); }
   }
 
-  const actions = { login: () => login(), logout, camOn, camOff, manual };
+  const actions = { login: () => login(), bio: () => bioLogin(false), enroll, logout, camOn, camOff, manual };
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]'); if (!el) return;
     const a = el.getAttribute('data-act');
@@ -155,7 +197,18 @@
   window.addEventListener('pagehide', camOff);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.stream) lockScreen(); }); // the browser drops the lock when the tab is hidden
 
-  let saved = null; try { saved = sessionStorage.getItem('pp_staff'); } catch (e) { /* ignore */ }
-  if (saved) login(saved);
-  setInterval(() => { if (S.staff && !document.hidden) api('/api/staff/summary', { headers: { 'X-Staff-Token': S.staff } }).then(counts).catch(() => {}); }, 20000);
+  (async function boot() {
+    let invite = null; try { invite = new URLSearchParams(location.search).get('enroll'); } catch (e) { /* old browser */ }
+    if (invite) { startEnroll(invite); return; }
+    const can = window.Bio ? await Bio.supported() : false;
+    if (can) $('bioBox').hidden = false;
+    let sess = null, saved = null; try { sess = sessionStorage.getItem('pp_staff_sess'); saved = sessionStorage.getItem('pp_staff'); } catch (e) { /* ignore */ }
+    if (sess) {
+      try { const sum = await api('/api/staff/summary', { headers: { 'X-Session': sess } }); openWithSession(sess, sum); return; } catch (e) { /* expired: fall through */ }
+    }
+    if (saved) { login(saved); return; }
+    let enrolledHere = false; try { enrolledHere = localStorage.getItem('bio_door') === '1'; } catch (e) { /* ignore */ }
+    if (can && enrolledHere) bioLogin(true); // this phone was enrolled: ask for the fingerprint / face straight away
+  })();
+  setInterval(() => { if (authed() && !document.hidden) api('/api/staff/summary', { headers: authH() }).then(counts).catch(() => {}); }, 20000);
 })();

@@ -7,6 +7,7 @@ const { sendStkPush } = require("../tinypesa");
 const { processVerifiedPayment, remainingStock } = require("../payments");
 const U = require("../util");
 const V = require("../verify");
+const R = require("../referral");
 
 const router = express.Router();
 const limit = (n) =>
@@ -49,6 +50,21 @@ async function loadTickets(orderId) {
     event: { name: r.event_name, venue: r.venue, date: r.event_date, time: r.event_time },
     qr: U.qrFor(r.ticket_number, r.qr_version), // this exact string is what the QR code encodes
   }));
+}
+
+/** The customer's referral code + live progress + any free reward tickets already issued to them. Never blocks the tickets themselves. */
+async function referralFor(o) {
+  try {
+    const ref = await R.getOrCreate({ query }, o.holder_phone, o.holder_name);
+    const prog = await R.progress({ query }, ref.code);
+    const comp = await query("SELECT id FROM orders WHERE reward_code = $1 AND status = 'PAID' ORDER BY id", [ref.code]);
+    const freeTickets = [];
+    for (const c of comp.rows) freeTickets.push(...(await loadTickets(c.id)));
+    return { code: ref.code, ...prog, freeTickets };
+  } catch (err) {
+    console.error("referral failed:", err.message);
+    return null;
+  }
 }
 
 /** Server-side price: quantity × unit price − promo. `db` is the pool or a tx client. */
@@ -165,6 +181,25 @@ router.post("/promo/check", limit(20), U.wrap(async (req, res) => {
   res.json({ code: p.promo, subtotal: p.subtotal, discount: p.discount, total: p.total });
 }));
 
+// Referral codes: checked at checkout, and the progress bar on "Your ticket" refreshes from here (counts only, no personal data).
+router.post("/referral/check", limit(30), U.wrap(async (req, res) => {
+  const code = R.clean(req.body?.code);
+  if (!R.CODE_RE.test(code)) throw new U.HttpError(400, "That referral code isn't valid.");
+  const { rows } = await query("SELECT phone FROM referral_codes WHERE code = $1", [code]);
+  if (!rows[0]) throw new U.HttpError(400, "That referral code isn't valid.");
+  let mine = false;
+  try { mine = !!req.body?.phone && U.normalizePhone(req.body.phone) === rows[0].phone; } catch { /* phone not typed yet */ }
+  if (mine) throw new U.HttpError(400, "You can't use your own referral code. Share it with friends instead.");
+  res.json({ ok: true, code });
+}));
+router.get("/referral/:code", limit(60), U.wrap(async (req, res) => {
+  const code = R.clean(req.params.code);
+  const prog = R.CODE_RE.test(code) ? await R.progress({ query }, code) : null;
+  if (!prog) throw new U.HttpError(404, "Referral code not found.");
+  res.set("Cache-Control", "no-store");
+  res.json({ code, ...prog });
+}));
+
 router.get("/verify/challenge", limit(30), (req, res) => {
   res.set("Cache-Control", "no-store");
   res.json({ challenge: V.challenge(), minMs: V.MIN_WAIT_MS });
@@ -183,6 +218,7 @@ router.post("/orders", limit(40), V.requirePass, U.wrap(async (req, res) => {
   if (b.agreed !== true) throw new U.HttpError(400, "Please confirm you're 18+ and agree to the terms.");
   const phone = U.normalizePhone(b.phone);
   const quantity = parseQty(b.quantity);
+  const refCode = R.clean(b.referralCode);
   const typeId = Number.parseInt(b.ticketTypeId, 10);
   if (!Number.isInteger(typeId)) throw new U.HttpError(400, "Choose a ticket type.");
   const attendees = Array.isArray(b.attendees)
@@ -219,6 +255,13 @@ router.post("/orders", limit(40), V.requirePass, U.wrap(async (req, res) => {
         throw new U.HttpError(400, `${tt.name} tickets are only for guests who have paid for a pool party ticket. Buy your pool party ticket first, then use the same M-Pesa number here.`);
       }
     }
+    let referral = null;
+    if (refCode) {
+      const rr = await c.query("SELECT code, phone FROM referral_codes WHERE code = $1", [refCode]);
+      if (!rr.rows[0]) throw new U.HttpError(400, "That referral code isn't valid. Check it with your friend.");
+      if (rr.rows[0].phone === phone) throw new U.HttpError(400, "You can't use your own referral code. Share it with friends instead.");
+      referral = rr.rows[0].code;
+    }
     const remaining = await remainingStock(c, tt.id);
     if (remaining < quantity) {
       throw new U.HttpError(409, remaining > 0 ? `Only ${remaining} ${tt.name} ticket${remaining === 1 ? "" : "s"} left.` : `${tt.name} is sold out.`);
@@ -226,10 +269,10 @@ router.post("/orders", limit(40), V.requirePass, U.wrap(async (req, res) => {
     const price = await priceOrder(c, tt, quantity, b.promoCode, true);
     await c.query(
       `INSERT INTO orders (order_number, access_key_hash, holder_name, holder_email, holder_phone, event_id, ticket_type_id,
-                           quantity, unit_price, subtotal_amount, discount_amount, total_amount, promo_code, attendee_names, expires_at, created_ip)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+                           quantity, unit_price, subtotal_amount, discount_amount, total_amount, promo_code, attendee_names, expires_at, created_ip, referral_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [orderNumber, U.sha256(accessKey), name, email, phone, tt.event_id, tt.id, quantity, tt.price,
-       price.subtotal, price.discount, price.total, price.promo, JSON.stringify(attendees), expiresAt, req.ip || null]
+       price.subtotal, price.discount, price.total, price.promo, JSON.stringify(attendees), expiresAt, req.ip || null, referral]
     );
     return { event: tt.event_name, ticketType: tt.name, unitPrice: tt.price, ...price };
   });
@@ -384,7 +427,7 @@ router.get("/orders/:orderNumber/status", limit(120), U.wrap(async (req, res) =>
     failureCode: o.failure_code,
     failureReason: o.failure_reason,
   };
-  if (status === "PAID") out.tickets = await loadTickets(o.id);
+  if (status === "PAID") { out.tickets = await loadTickets(o.id); out.referral = await referralFor(o); }
   res.set("Cache-Control", "no-store");
   res.json(out);
 }));
@@ -403,7 +446,7 @@ router.post("/tickets/lookup", limit(20), U.wrap(async (req, res) => {
   const o = rows[0];
   if (!o) throw notFound;
   res.set("Cache-Control", "no-store");
-  res.json({ orderNumber: o.order_number, link: U.linkToken(o.order_number), tickets: await loadTickets(o.id) });
+  res.json({ orderNumber: o.order_number, link: U.linkToken(o.order_number), tickets: await loadTickets(o.id), referral: await referralFor(o) });
 }));
 
 // One-tap link sent from Admin → Orders → WhatsApp. The signed token proves the admin issued it.
@@ -411,10 +454,10 @@ router.get("/tickets/link/:token", limit(30), U.wrap(async (req, res) => {
   const orderNumber = U.parseLinkToken(req.params.token);
   const notFound = new U.HttpError(404, "This ticket link isn't valid. Use \u201cFind my ticket\u201d instead.");
   if (!orderNumber) throw notFound;
-  const { rows } = await query("SELECT id FROM orders WHERE order_number = $1 AND status = 'PAID'", [orderNumber]);
+  const { rows } = await query("SELECT * FROM orders WHERE order_number = $1 AND status = 'PAID'", [orderNumber]);
   if (!rows[0]) throw notFound;
   res.set("Cache-Control", "no-store");
-  res.json({ orderNumber, tickets: await loadTickets(rows[0].id) });
+  res.json({ orderNumber, tickets: await loadTickets(rows[0].id), referral: await referralFor(rows[0]) });
 }));
 
 // Read-only, no personal data. (Door staff use /api/staff/* instead.)

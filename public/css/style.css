@@ -382,3 +382,19 @@ body.hasbar .supcard{bottom:calc(158px + env(safe-area-inset-bottom,0px))}
 .human.bad .hbox{border-color:var(--bad); animation:shake .35s}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 @media(prefers-reduced-motion:reduce){.human.busy .hchk,.human.ok .hchk,.human.bad .hbox{animation:none}}
+
+/* v2.8 referral card + progress bar */
+.ref{margin-top:16px; padding:16px 16px 6px; border:1px solid var(--line2); border-radius:18px; background:linear-gradient(180deg,rgba(232,197,106,.10),rgba(232,197,106,.03))}
+.ref h3{font:700 19px var(--serif); color:var(--acc); margin:0}
+.refsub{font-size:13px; color:var(--mut); margin:6px 0 12px}
+.refcode{display:flex; gap:10px; align-items:center}
+.refcode b{flex:1; text-align:center; font:700 22px ui-monospace,Menlo,monospace; letter-spacing:.08em; padding:10px 8px; border:1px dashed var(--acc); border-radius:12px; color:var(--txt); background:rgba(0,0,0,.35)}
+.refcode .btn{margin-top:0; width:auto; flex:0 0 auto}
+.refbar{height:14px; border-radius:99px; background:rgba(255,255,255,.09); overflow:hidden; margin-top:14px; border:1px solid var(--line2)}
+.refbar i{display:block; height:100%; width:0; border-radius:99px; background:linear-gradient(90deg,#a87b1d,#e8c56a,#f7e39a); transition:width .8s cubic-bezier(.2,.8,.2,1)}
+.refmeta{display:flex; justify-content:space-between; gap:10px; margin-top:7px; font-size:13px; color:var(--mut)} .refmeta b{color:var(--acc)}
+.refchips{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+.refchips span{font-size:12.5px; padding:6px 11px; border-radius:99px; border:1px solid var(--line2); color:var(--mut); background:rgba(0,0,0,.3)}
+.refchips span.hit{color:var(--acc-ink); background:var(--acc); border-color:var(--acc); font-weight:600}
+.refmsg{margin-top:12px; padding:11px 13px; border-radius:12px; font-size:13.5px; background:rgba(232,197,106,.14); border:1px solid var(--acc); color:var(--txt)}
+@media(prefers-reduced-motion:reduce){.refbar i{transition:none}}

@@ -36,7 +36,7 @@
   const S = {
     pass: null, verifying: false, cfg: {}, events: [], ev: null, tierId: null, qty: 1, promo: null,
     ready: false, findMode: false, showFind: false, order: null, sig: '', tickets: [],
-    poll: null, pollStart: 0, cdLeft: 0, cdTimer: null, clock: null, tiersSig: '',
+    referral: null, poll: null, pollStart: 0, cdLeft: 0, cdTimer: null, clock: null, tiersSig: '',
   };
   const tier = () => (S.ev ? S.ev.ticketTypes.find((t) => String(t.id) === String(S.tierId)) : null);
   const names = () => Array.from(document.querySelectorAll('.attIn')).map((i) => i.value.trim());
@@ -223,7 +223,7 @@
   }
 
   /* ───────── step 2: payment ───────── */
-  const orderSig = () => [S.tierId, S.qty, $('nm').value.trim(), phone9($('mp').value), names().join('|'), $('promo').value.trim().toUpperCase()].join('~');
+  const orderSig = () => [S.tierId, S.qty, $('nm').value.trim(), phone9($('mp').value), names().join('|'), $('promo').value.trim().toUpperCase(), $('ref').value.trim().toUpperCase()].join('~');
 
   function term(text, cls) {
     const t = $('mpStat'); t.classList.add('on');
@@ -250,7 +250,7 @@
     try {
       if (!(S.order && (resumed || S.sig === sig))) {
         const o = await api('/api/orders', { method: 'POST', headers: { 'X-Verify': S.pass ? S.pass.token : '' }, body: {
-          name: $('nm').value.trim(), phone: raw, ticketTypeId: S.tierId, quantity: S.qty, attendees: names(), agreed: $('agree').checked, promoCode: $('promo').value.trim() } });
+          name: $('nm').value.trim(), phone: raw, ticketTypeId: S.tierId, quantity: S.qty, attendees: names(), agreed: $('agree').checked, promoCode: $('promo').value.trim(), referralCode: $('ref').value.trim() } });
         S.order = o; S.sig = sig;
       } else reused = true;
       btn.textContent = 'Sending prompt\u2026';
@@ -306,7 +306,7 @@
 
   let slow = false;
   function onStatus(d) {
-    if (d.status === 'PAID') { stopPolling(); finish(d.tickets || []); return; }
+    if (d.status === 'PAID') { stopPolling(); finish(d); return; }
     if (d.status === 'FAILED') { stopPolling(); showResult('failed', d); return; }
     if (d.status === 'EXPIRED') { stopPolling(); showResult('expired', d); return; }
     if (d.status === 'REFUND_REQUIRED') { stopPolling(); showResult('refund', d); return; }
@@ -370,6 +370,12 @@
     S.tickets = Array.from(map.values()); // kept in memory only: a refresh starts clean, "Find my ticket" brings them back
   }
 
+  /* Tickets + referral card from any server reply that proves the customer owns the order. */
+  function absorb(d) {
+    mergeTickets(d.tickets);
+    if (d.referral) { S.referral = d.referral; mergeTickets(d.referral.freeTickets); } // free reward tickets show up with the rest
+  }
+
   /* One-tap link from the organiser's WhatsApp message: /?t=<token> opens the ticket straight away. */
   async function openFromLink() {
     let tok = null;
@@ -378,14 +384,15 @@
     try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
     try {
       const d = await api('/api/tickets/link/' + encodeURIComponent(tok));
-      mergeTickets(d.tickets); renderTickets(); updateTabs(); go(3);
+      absorb(d); renderTickets(); updateTabs(); go(3);
       return true;
     } catch (e) { toast(e.message); return false; }
   }
 
-  function finish(tickets) {
+  function finish(d) {
     stopPolling(); clearInterval(S.cdTimer); slow = false;
-    mergeTickets(tickets);
+    absorb({ tickets: d.tickets || [], referral: d.referral });
+    store.del('pp_ref'); $('ref').value = ''; $('refOk').textContent = ''; // a friend's code is used up once the order is paid
     S.order = null; S.sig = ''; view('idle'); payBtnLabel();
     renderTickets(); updateTabs(); go(3);
     if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
@@ -434,6 +441,7 @@
     document.querySelectorAll('#tkList .tk canvas').forEach((cv, i) => drawQR(cv, S.tickets[i].qr));
     $('dlPl').textContent = S.tickets.length > 1 ? 's (' + S.tickets.length + ')' : '';
     if (S.cfg.groupLink) { $('grpLink').href = S.cfg.groupLink; show('grpCard', true); }
+    renderReferral();
   }
 
   function rrect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
@@ -514,10 +522,72 @@
     if (code.length < 6) { setErr('fErr', 'Enter the M-Pesa code from your SMS (e.g. SGH7K2L9QX) or your order number.'); b.disabled = false; return; }
     try {
       const d = await api('/api/tickets/lookup', { method: 'POST', body: { phone, code } });
-      mergeTickets(d.tickets); S.showFind = false; $('fCode').value = ''; renderTickets(); updateTabs(); toast('Ticket found.');
+      absorb(d); S.showFind = false; $('fCode').value = ''; renderTickets(); updateTabs(); toast('Ticket found.');
     } catch (e) { setErr('fErr', e.message); } finally { b.disabled = false; }
   }
   function findOpen() { S.findMode = true; S.showFind = true; renderTickets(); updateTabs(); go(3); const f = $('fPhone'); if (f) f.focus(); }
+
+  /* ───────── referral card: share your code, watch the bar fill ───────── */
+  const refLink = () => location.origin + '/?ref=' + encodeURIComponent(S.referral.code);
+  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  function renderReferral() {
+    const r = S.referral; show('refCard', !!r); if (!r) return;
+    $('refCode').textContent = r.code;
+    $('refRules').innerHTML = 'When friends buy with your code: ' + r.tiers.map((t) =>
+      '<b>' + plural(t.singles, 'single') + ' + ' + plural(t.couples, 'couple') + ' = ' + plural(t.free, 'free ticket') + '</b>').join(', ') + '.';
+    const bar = $('refBar'); bar.setAttribute('aria-valuenow', r.pct); $('refFill').style.width = r.pct + '%';
+    const t = r.target;
+    $('refTxt').textContent = r.singles + '/' + t.singles + ' singles \u00b7 ' + r.couples + '/' + t.couples + ' couple' + (t.couples === 1 ? '' : 's') + ' \u00b7 ' + plural(r.people, 'friend') + ' so far';
+    $('refPct').textContent = r.pct + '%';
+    $('refTiers').innerHTML = r.tiers.map((x) => '<span class="' + (x.reached ? 'hit' : '') + '">' + (x.reached ? '\u2713 ' : '') + plural(x.free, 'free ticket') + '</span>').join('');
+    const m = $('refMsg'); let msg = '';
+    if (r.available > 0) msg = '\ud83c\udf89 You earned ' + plural(r.available, 'free ticket') + '! The organiser will send it to you shortly. It will appear here, so tap Refresh.';
+    else if (r.issued > 0 && !(r.next)) msg = '\ud83c\udf81 All rewards collected. Your ' + plural(r.issued, 'free ticket') + ' ' + (r.issued === 1 ? 'is' : 'are') + ' in the list above.';
+    else if (r.next) msg = 'Next: ' + plural(r.next.free, 'free ticket') + ' at ' + plural(r.next.singles, 'single') + ' + ' + plural(r.next.couples, 'couple') + '.';
+    m.textContent = msg; m.hidden = !msg;
+  }
+  async function refRefresh() {
+    if (!S.referral) return;
+    const b = $('refRefreshBtn'); b.disabled = true;
+    try {
+      const d = await api('/api/referral/' + encodeURIComponent(S.referral.code));
+      const had = S.referral.issued;
+      S.referral = Object.assign({}, S.referral, d);
+      renderReferral();
+      if (d.issued > had) toast('Your free ticket was sent. Tap \u201cFind my ticket\u201d with your M-Pesa number and order ' + (d.rewardOrders[d.rewardOrders.length - 1] || '') + '.');
+      else toast('Progress updated.');
+    } catch (e) { toast(e.message); } finally { b.disabled = false; }
+  }
+  function refCopy() {
+    if (!S.referral) return;
+    const txt = S.referral.code;
+    const done = () => toast('Code copied: ' + txt);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, () => toast('Your code is ' + txt));
+    else toast('Your code is ' + txt);
+  }
+  function refShare() {
+    if (!S.referral) return;
+    const name = S.ev ? S.ev.name : 'the party';
+    const text = "Join me at " + name + '! Buy your ticket with my code ' + S.referral.code + ' (or tap this link, it fills the code in): ' + refLink();
+    if (navigator.share) { navigator.share({ title: name, text }).catch(() => {}); return; }
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+  }
+  /* A friend's link (?ref=CODE) is remembered on this phone and fills the code in at checkout. */
+  function captureRef() {
+    let c = null;
+    try { c = new URLSearchParams(location.search).get('ref'); } catch (e) { /* old browser */ }
+    if (c) { c = c.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24); if (c) store.set('pp_ref', c); try { const u = new URLSearchParams(location.search); u.delete('ref'); history.replaceState(null, '', location.pathname + (u.toString() ? '?' + u : '')); } catch (e) { /* ignore */ } }
+    const saved = store.get('pp_ref'); if (saved && !$('ref').value) $('ref').value = saved;
+  }
+  async function checkRef() {
+    const code = $('ref').value.trim().toUpperCase();
+    setErr('refErr', ''); $('refOk').textContent = '';
+    if (!code) { store.del('pp_ref'); return; }
+    try {
+      await api('/api/referral/check', { method: 'POST', body: { code, phone: $('mp').value } });
+      $('refOk').textContent = 'Referral code accepted. Your friend gets credit when you pay.'; store.set('pp_ref', code);
+    } catch (e) { setErr('refErr', e.message); }
+  }
 
   /* ───────── support button ───────── */
   function initSupport() {
@@ -633,7 +703,7 @@
   const actions = {
     noop() {}, go: (n) => go(+n), applyPromo: () => applyPromo(false), bump, tier: pickTier, toPay, pay, retry, restart, resend, changeNumber, checkNow: () => tick(),
     dlAll, ics, share, find, findOpen, findMore: () => { S.showFind = !S.showFind; renderTickets(); if (S.showFind) $('fPhone').focus(); }, again: () => { S.order = null; S.sig = ''; S.promo = null; $('promo').value = ''; $('promoOk').textContent = ''; setErr('promoErr', ''); S.ready = false; updateTabs(); go(1); },
-    human,
+    human, refCopy, refShare, refRefresh,
     stk: () => { $('p1').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     terms: () => { $('terms').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
   };
@@ -649,6 +719,8 @@
     if (e.key === 'Enter' && t.id === 'mp' && !$('payBtn').hidden) { e.preventDefault(); $('payBtn').click(); }
   });
   $('nm').addEventListener('input', invalidate);
+  $('ref').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); setErr('refErr', ''); $('refOk').textContent = ''; });
+  $('ref').addEventListener('change', checkRef);
   $('agree').addEventListener('change', invalidate);
   $('fCode').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.order && S.poll) tick(); }); // back from the M-Pesa app → check now
@@ -661,7 +733,7 @@
     try { S.cfg = await api('/api/config'); } catch (e) { /* defaults apply */ }
     syncHuman();
     const sp = store.get('pp_pass'); if (sp && sp.token && sp.exp > Date.now()) S.pass = sp;
-    syncHuman(); initSupport(); initSticky(); initAnalytics(); initExtras();
+    syncHuman(); initSupport(); initSticky(); initAnalytics(); initExtras(); captureRef();
     // Older versions saved orders and tickets on the phone. Clear them so nothing stale (a failed payment, a cancelled ticket) comes back.
     ['pp_order', 'pp_tickets', 'pp_keys', 'pp_links'].forEach((k) => store.del(k));
     updateTabs(); view('idle');

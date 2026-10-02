@@ -15,10 +15,24 @@
   <div class="hero glass" style="padding:18px 20px"><h1 style="font-size:28px">Door scanner</h1><p>Staff only</p></div>
 
   <div class="panel glass on" id="login">
+    <div id="bioBox" hidden>
+      <button class="btn" type="button" id="bioBtn" data-act="bio">Unlock with fingerprint / Face ID</button>
+      <p class="note" id="bioWait" hidden style="margin-top:8px;color:var(--acc)">Waiting for your phone&hellip; place your finger on the sensor (Samsung: the side button) or look at the front camera.</p>
+      <p class="note" style="margin-top:8px">Your phone will ask for your fingerprint, or scan your face with the front camera.</p>
+      <p class="note" style="margin:14px 0 0">&mdash; or use the staff code &mdash;</p>
+    </div>
     <label for="tok">Staff code</label>
     <input id="tok" type="password" autocomplete="current-password" placeholder="Enter the staff code">
     <div class="err" id="loginErr"></div>
     <button class="btn" type="button" data-act="login">Unlock scanner</button>
+  </div>
+
+  <div class="panel glass" id="enroll">
+    <h2 style="font:600 22px var(--serif);color:var(--acc)">Set up fingerprint / Face ID</h2>
+    <p class="note" style="text-align:left;margin-top:10px" id="enrollTxt">Checking your link&hellip;</p>
+    <div class="err" id="enrollErr"></div>
+    <button class="btn" type="button" id="enrollBtn" data-act="enroll">Set up now</button>
+    <p class="note">Your fingerprint or face stays on this phone. The scanner only remembers that this phone is allowed in.</p>
   </div>
 
   <div class="panel glass" id="app">
@@ -47,6 +61,7 @@
   </div>
 </div>
 <script src="/vendor/jsQR.min.js" defer></script>
+<script src="/js/bio.js" defer></script>
 <script src="/js/door.js" defer></script>
 </body>
 </html>
